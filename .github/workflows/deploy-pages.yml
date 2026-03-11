@@ -1,0 +1,34 @@
+# Deploy zu GitHub Pages und fügt firebase-config.js aus einem Secret hinzu
+# (API-Key steht nicht im Repo)
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: github-pages
+    steps:
+      - uses: actions/checkout@v4
+
+      # Firebase-Config aus Secret erzeugen (nicht im Repo)
+      - name: Firebase-Config setzen
+        run: |
+          echo "$FIREBASE_CONFIG_B64" | base64 -d > firebase-config.js
+        env:
+          # In Repo: Settings → Secrets and variables → Actions → FIREBASE_CONFIG_B64
+          # Inhalt = Base64 der kompletten firebase-config.js (z.B. unter macOS: base64 -i firebase-config.js | pbcopy)
+          FIREBASE_CONFIG_B64: ${{ secrets.FIREBASE_CONFIG_B64 }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - uses: actions/deploy-pages@v4

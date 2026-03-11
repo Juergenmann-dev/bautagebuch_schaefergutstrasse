@@ -1347,15 +1347,9 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
   import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+  import { firebaseConfig } from "./firebase-config.js";
 
-  const app = initializeApp({
-    apiKey: "***REMOVED***",
-    authDomain: "bautagebuch-schaefergut-1und2.firebaseapp.com",
-    projectId: "bautagebuch-schaefergut-1und2",
-    storageBucket: "bautagebuch-schaefergut-1und2.firebasestorage.app",
-    messagingSenderId: "478188802474",
-    appId: "1:478188802474:web:4724441ac7006a18a51bd3"
-  });
+  const app = initializeApp(firebaseConfig);
 
   const auth = getAuth(app);
   const overlay = document.getElementById('login-overlay');
