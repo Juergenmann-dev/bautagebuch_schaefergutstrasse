@@ -1,0 +1,5 @@
+# Firebase-Config mit echtem API-Key – niemals ins Repo committen!
+firebase-config.js
+
+# macOS
+.DS_Store
