@@ -1105,7 +1105,7 @@
   .wir-helfer-card:hover .wir-helfer-del { opacity: 1; }
   .wir-gruppenfoto-wrap {
     width: 100%;
-    height: 340px;
+    min-height: 340px;
     background: var(--surface2);
     border: 2px dashed var(--border-light);
     border-radius: 6px;
@@ -1118,7 +1118,11 @@
     overflow: hidden;
     transition: border-color 0.2s, background 0.2s;
   }
-  .wir-gruppenfoto-wrap:hover { border-color: var(--gold-dim); background: var(--surface3); }
+  .wir-gruppenfoto-wrap.has-foto {
+    min-height: 0;
+    display: block;
+  }
+  .wir-gruppenfoto-wrap:not(.has-foto):hover { border-color: var(--gold-dim); background: var(--surface3); }
   .wir-gruppenfoto-wrap:hover #wir-gruppenfoto-overlay { display:flex !important; }
   #wir-gruppenfoto-placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; pointer-events:none; }
   #wir-gruppenfoto-overlay {
@@ -4533,14 +4537,16 @@ function renderGruppenfoto() {
   if (!img || !placeholder) return;
   if (state.gruppenfoto) {
     img.src = state.gruppenfoto;
-    img.style.display = 'block';
+    img.style.cssText = 'display:block;width:100%;height:auto;object-fit:unset;border-radius:4px;';
     placeholder.style.display = 'none';
+    wrap.classList.add('has-foto');
     wrap.style.border = '2px solid var(--border)';
     wrap.style.cursor = 'default';
     wrap.onclick = null;
   } else {
-    img.style.display = 'none';
+    img.style.cssText = 'display:none;width:100%;height:100%;object-fit:cover;border-radius:4px;';
     placeholder.style.display = 'flex';
+    wrap.classList.remove('has-foto');
     wrap.style.border = '2px dashed var(--border-light)';
     wrap.style.cursor = 'pointer';
     wrap.onclick = () => document.getElementById('wir-gruppenfoto-input').click();
