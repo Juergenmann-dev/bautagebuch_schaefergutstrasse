@@ -4488,28 +4488,31 @@ function renderWir() {
 function handleGruppenfoto(input) {
   const f = input.files[0];
   if (!f) return;
-  if (typeof window._uploadFoto === 'function') {
-    const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `gruppenfoto/${Date.now()}_${safeName}`;
-    window._uploadFoto(f, path).then(({ url, storagePath }) => {
-      if (state.gruppenFotoPath && typeof window._deleteFotoFromStorage === 'function') {
-        window._deleteFotoFromStorage(state.gruppenFotoPath);
-      }
-      state.gruppenfoto = url;
-      state.gruppenFotoPath = storagePath;
+  // Sofort lokale Vorschau zeigen (base64), dann im Hintergrund zu Storage hochladen
+  const reader = new FileReader();
+  reader.onload = e => {
+    state.gruppenfoto = e.target.result; // sofortige Vorschau
+    renderGruppenfoto();
+    if (typeof window._uploadFoto === 'function') {
+      const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `gruppenfoto/${Date.now()}_${safeName}`;
+      window._uploadFoto(f, path).then(({ url, storagePath }) => {
+        if (state.gruppenFotoPath && typeof window._deleteFotoFromStorage === 'function') {
+          window._deleteFotoFromStorage(state.gruppenFotoPath);
+        }
+        state.gruppenfoto = url;
+        state.gruppenFotoPath = storagePath;
+        markDirty(); save();
+        renderGruppenfoto();
+      }).catch(err => {
+        console.error('Storage-Upload fehlgeschlagen, nutze base64:', err);
+        markDirty(); save(); // base64 behalten
+      });
+    } else {
       markDirty(); save();
-      renderGruppenfoto();
-    }).catch(e => {
-      console.error('Storage-Upload fehlgeschlagen, nutze base64:', e);
-      const r = new FileReader();
-      r.onload = ev => { state.gruppenfoto = ev.target.result; markDirty(); save(); renderGruppenfoto(); };
-      r.readAsDataURL(f);
-    });
-  } else {
-    const r = new FileReader();
-    r.onload = e => { state.gruppenfoto = e.target.result; markDirty(); save(); renderGruppenfoto(); };
-    r.readAsDataURL(f);
-  }
+    }
+  };
+  reader.readAsDataURL(f);
 }
 
 function deleteGruppenfoto() {
