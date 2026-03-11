@@ -1394,7 +1394,9 @@
   document.getElementById('login-password').addEventListener('keydown', e => {
     if (e.key === 'Enter') doLogin();
   });
-  document.getElementById('logout-btn').addEventListener('click', () => signOut(auth));
+  document.getElementById('logout-btn').addEventListener('click', () => 
+    signOut(auth).then(() => location.reload())
+  );
 </script>
 
 <!-- HEADER -->
