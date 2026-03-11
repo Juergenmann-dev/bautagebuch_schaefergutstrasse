@@ -1347,21 +1347,66 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
   import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc, getDoc }
+    from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
+  import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject }
+    from "https://www.gstatic.com/firebasejs/12.10.0/firebase-storage.js";
   import { firebaseConfig } from "./firebase-config.js";
 
-  const app = initializeApp(firebaseConfig);
+  const app     = initializeApp(firebaseConfig);
+  const auth    = getAuth(app);
+  const db      = getFirestore(app);
+  const storage = getStorage(app);
 
-  const auth = getAuth(app);
+  const STATE_DOC = doc(db, 'bautagebuch', 'state');
+
+  // ── Firestore helpers (global) ────────────────────────────────
+  window._saveState = async (stateData) => {
+    const json = JSON.stringify(stateData);
+    if (json.length > 950000) {
+      console.warn('State zu groß für Firestore (' + Math.round(json.length / 1024) + ' KB) – Cloud-Speicherung übersprungen');
+      return;
+    }
+    await setDoc(STATE_DOC, stateData);
+  };
+
+  window._loadState = async () => {
+    const snap = await getDoc(STATE_DOC);
+    return snap.exists() ? snap.data() : null;
+  };
+
+  // ── Storage helpers (global) ──────────────────────────────────
+  window._uploadFoto = async (file, path) => {
+    const storageRef = ref(storage, path);
+    const snap = await uploadBytes(storageRef, file);
+    const url = await getDownloadURL(snap.ref);
+    return { url, storagePath: path };
+  };
+
+  window._deleteFotoFromStorage = async (storagePath) => {
+    if (!storagePath) return;
+    try { await deleteObject(ref(storage, storagePath)); } catch(e) { /* ignorieren wenn nicht gefunden */ }
+  };
+
   const overlay = document.getElementById('login-overlay');
   const btn     = document.getElementById('login-btn');
   const errMsg  = document.getElementById('login-error');
 
   // Beim Laden immer ausloggen → erst dann Auth-Listener starten
   signOut(auth).then(() => {
-    onAuthStateChanged(auth, user => {
+    onAuthStateChanged(auth, async user => {
       if (user) {
         overlay.classList.add('hidden');
         setTimeout(() => overlay.style.display = 'none', 400);
+        // Firestore-Daten laden (haben Vorrang vor localStorage)
+        try {
+          const fsState = await window._loadState();
+          if (fsState && Object.keys(fsState).length > 0 && typeof window._applyFirestoreState === 'function') {
+            window._applyFirestoreState(fsState);
+          }
+        } catch(e) {
+          console.warn('Firestore laden fehlgeschlagen, nutze lokalen State:', e);
+        }
       } else {
         overlay.style.display = 'flex';
         overlay.classList.remove('hidden');
@@ -1388,7 +1433,7 @@
   document.getElementById('login-password').addEventListener('keydown', e => {
     if (e.key === 'Enter') doLogin();
   });
-  document.getElementById('logout-btn').addEventListener('click', () => 
+  document.getElementById('logout-btn').addEventListener('click', () =>
     signOut(auth).then(() => location.reload())
   );
 </script>
@@ -2376,6 +2421,22 @@ if (!state.notizen) state.notizen = [];
 if (!state.budgetPosten) state.budgetPosten = [];
 if (!state.meilensteine) state.meilensteine = [];
 
+// Firestore-State einspielen (wird vom module-Script nach Login aufgerufen)
+window._applyFirestoreState = function(fsState) {
+  Object.assign(state, fsState);
+  if (!state.behoerden) state.behoerden = [];
+  if (!state.raumAufgaben) state.raumAufgaben = {};
+  if (!state.raumNamen) state.raumNamen = {};
+  if (!state.helfer) state.helfer = [];
+  if (!state.kontakte) state.kontakte = [];
+  if (!state.dokumente) state.dokumente = [];
+  if (!state.notizen) state.notizen = [];
+  if (!state.budgetPosten) state.budgetPosten = [];
+  if (!state.meilensteine) state.meilensteine = [];
+  try { localStorage.setItem('bautagebuch_schaefergut', JSON.stringify(state)); } catch(e) {}
+  if (typeof renderAll === 'function') renderAll();
+};
+
 // ── Default-Daten beim ersten Start befüllen ──────────────────
 if (!state.team || state.team.length === 0) {
   state.team = [
@@ -2553,9 +2614,14 @@ function save() {
     const el = document.getElementById('embedded-state');
     if (el) el.textContent = JSON.stringify(state);
   } catch(e) {}
-  // 3. Speicher-Indikator kurz anzeigen
+  // 3. Firestore (fire-and-forget)
+  if (typeof window._saveState === 'function') {
+    window._saveState(JSON.parse(JSON.stringify(state)))
+      .catch(e => console.error('Firestore Speicherfehler:', e));
+  }
+  // 4. Speicher-Indikator kurz anzeigen
   showSaveIndicator();
-  // 4. Dirty-Banner ausblenden (localStorage gespeichert)
+  // 5. Dirty-Banner ausblenden
   markClean();
 }
 
@@ -2595,19 +2661,27 @@ function updateGewerkOptions() {
 
 // ── MODAL ─────────────────────────────────────────────────────
 let _eintragFotos = [];
+let _eintragFotoFiles = new Map(); // id → File (für Storage-Upload)
+
+function _renderEintragFotoPreview() {
+  const prev = document.getElementById('f-foto-preview');
+  if (!prev) return;
+  prev.innerHTML = _eintragFotos.map((f, i) =>
+    `<div style="position:relative;width:60px;height:60px;">
+      <img src="${f.src}" style="width:60px;height:60px;object-fit:cover;border-radius:3px;border:1px solid var(--border);">
+      <button onclick="_eintragFotos.splice(${i},1);_eintragFotoFiles.delete('${f.id}');_renderEintragFotoPreview()" style="position:absolute;top:-4px;right:-4px;background:var(--rust);border:none;color:#fff;width:16px;height:16px;border-radius:50%;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+    </div>`).join('');
+}
 
 function handleEintragFotos(event) {
   const files = Array.from(event.target.files);
   files.forEach(file => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      _eintragFotos.push({ src: e.target.result, name: file.name });
-      const prev = document.getElementById('f-foto-preview');
-      if (prev) prev.innerHTML = _eintragFotos.map((f,i) =>
-        `<div style="position:relative;width:60px;height:60px;">
-          <img src="${f.src}" style="width:60px;height:60px;object-fit:cover;border-radius:3px;border:1px solid var(--border);">
-          <button onclick="_eintragFotos.splice(${i},1);handleEintragFotos({target:{files:[]}});document.getElementById('f-foto-preview').innerHTML=''" style="position:absolute;top:-4px;right:-4px;background:var(--rust);border:none;color:#fff;width:16px;height:16px;border-radius:50%;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
-        </div>`).join('');
+      const id = Date.now() + Math.random();
+      _eintragFotos.push({ id, src: e.target.result, name: file.name });
+      _eintragFotoFiles.set(id, file);
+      _renderEintragFotoPreview();
     };
     reader.readAsDataURL(file);
   });
@@ -2616,6 +2690,7 @@ function handleEintragFotos(event) {
 
 function openModal() {
   _eintragFotos = [];
+  _eintragFotoFiles.clear();
   document.getElementById('f-datum').value = new Date().toISOString().split('T')[0];
   document.getElementById('f-gebaeude').value = 'G I';
   updateGewerkOptions();
@@ -2630,32 +2705,58 @@ function openModal() {
 }
 function closeModal() {
   _eintragFotos = [];
+  _eintragFotoFiles.clear();
   document.getElementById('modal').classList.remove('open');
 }
 
-function saveEintrag() {
+async function saveEintrag() {
   const titel = document.getElementById('f-titel').value.trim();
   if (!titel) { alert('Bitte einen Titel eingeben.'); return; }
 
+  const saveBtn = document.querySelector('#modal .btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = _eintragFotos.length ? 'Lade hoch…' : 'Speichern…'; }
+
+  const eintragId = Date.now();
+
+  // Fotos zu Storage hochladen
+  const uploadedFotos = [];
+  for (const f of _eintragFotos) {
+    const file = _eintragFotoFiles.get(f.id);
+    if (file && typeof window._uploadFoto === 'function') {
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = `eintraege/${eintragId}/${safeName}`;
+        const { url, storagePath } = await window._uploadFoto(file, path);
+        uploadedFotos.push({ src: url, storagePath, name: file.name });
+      } catch(e) {
+        console.error('Storage-Upload fehlgeschlagen, nutze base64:', e);
+        uploadedFotos.push({ src: f.src, name: f.name });
+      }
+    } else {
+      uploadedFotos.push({ src: f.src, name: f.name });
+    }
+  }
+
   const eintrag = {
-    id: Date.now(),
+    id: eintragId,
     datum: document.getElementById('f-datum').value,
     gebaeude: document.getElementById('f-gebaeude').value,
     gewerk: document.getElementById('f-gewerk').value,
     kosten: parseFloat(document.getElementById('f-kosten').value) || 0,
-    titel: titel,
+    titel,
     notizen: document.getElementById('f-notizen').value.trim(),
     fortschritt: parseInt(document.getElementById('f-fortschritt').value),
-    fotos: _eintragFotos.map(f => f.src),
+    fotos: uploadedFotos.map(f => f.src),
   };
 
   state.eintraege.unshift(eintrag);
 
   // Fotos auch in den Fotos-Tab übernehmen
-  _eintragFotos.forEach(f => {
+  uploadedFotos.forEach(f => {
     state.fotos.unshift({
       id: Date.now() + Math.random(),
       src: f.src,
+      storagePath: f.storagePath || null,
       name: f.name,
       datum: eintrag.datum,
       gebaeude: eintrag.gebaeude === 'Beide' ? 'G I' : eintrag.gebaeude,
@@ -2664,8 +2765,9 @@ function saveEintrag() {
     });
   });
   _eintragFotos = [];
+  _eintragFotoFiles.clear();
 
-  // Update gewerk progress
+  // Gewerk-Fortschritt aktualisieren
   const gList = eintrag.gebaeude === 'Beide' ? ['G I', 'G II'] : [eintrag.gebaeude];
   gList.forEach(g => {
     if (state.gewerke[g] && state.gewerke[g][eintrag.gewerk] !== undefined) {
@@ -2676,6 +2778,7 @@ function saveEintrag() {
   });
 
   markDirty(); save();
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Speichern'; }
   closeModal();
   renderAll();
 }
@@ -3146,25 +3249,28 @@ function renderKosten() {
 }
 
 // ── FOTOS ─────────────────────────────────────────────────────
-// Pending fotos waiting for modal confirmation
 let _pendingFotos = [];
+let _pendingFotoFiles = new Map(); // id → File (für Storage-Upload)
 
 function handleFotos(event) {
   const files = Array.from(event.target.files);
   if (!files.length) return;
   _pendingFotos = [];
+  _pendingFotoFiles.clear();
   let loaded = 0;
   files.forEach(file => {
     const reader = new FileReader();
     reader.onload = (e) => {
+      const id = Date.now() + Math.random();
       _pendingFotos.push({
-        id: Date.now() + Math.random(),
-        src: e.target.result,
+        id,
+        src: e.target.result, // nur Vorschau, wird durch Storage-URL ersetzt
         name: file.name,
         datum: new Date().toISOString().split('T')[0],
         gebaeude: 'G I',
         bereich: 'Sonstiges'
       });
+      _pendingFotoFiles.set(id, file);
       loaded++;
       if (loaded === files.length) openFotoUploadModal();
     };
@@ -3187,17 +3293,34 @@ function cancelFotoUpload() {
   document.getElementById('foto-upload-modal').style.display = 'none';
 }
 
-function confirmFotoUpload() {
+async function confirmFotoUpload() {
   const geb = document.getElementById('foto-upload-gebaeude').value;
   const ber = document.getElementById('foto-upload-bereich').value;
-  _pendingFotos.forEach(f => {
+  const confirmBtn = document.querySelector('#foto-upload-modal .btn-primary');
+  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Lade hoch…'; }
+
+  for (const f of _pendingFotos) {
     f.gebaeude = geb;
-    f.bereich = ber;
+    f.bereich  = ber;
+    const file = _pendingFotoFiles.get(f.id);
+    if (file && typeof window._uploadFoto === 'function') {
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = `fotos/${Date.now()}_${safeName}`;
+        const { url, storagePath } = await window._uploadFoto(file, path);
+        f.src = url;
+        f.storagePath = storagePath;
+      } catch(e) {
+        console.error('Storage-Upload fehlgeschlagen, nutze base64:', e);
+      }
+    }
     state.fotos.unshift(f);
-  });
+  }
+
   _pendingFotos = [];
+  _pendingFotoFiles.clear();
   document.getElementById('foto-upload-modal').style.display = 'none';
-  // Reset filter to show newly uploaded photos
+  if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Hochladen'; }
   const fg = document.getElementById('foto-filter-gebaeude');
   const fb = document.getElementById('foto-filter-bereich');
   if (fg) fg.value = '';
@@ -3234,7 +3357,11 @@ function renderFotos() {
 }
 
 function deleteFoto(id) {
-  state.fotos = state.fotos.filter(f => f.id != id);
+  const f = state.fotos.find(x => x.id == id);
+  if (f && f.storagePath && typeof window._deleteFotoFromStorage === 'function') {
+    window._deleteFotoFromStorage(f.storagePath);
+  }
+  state.fotos = state.fotos.filter(x => x.id != id);
   markDirty(); save();
   renderFotos();
 }
@@ -3315,22 +3442,41 @@ function resizeImage(dataUrl, maxPx, quality, callback) {
 function saveZustandFoto() {
   const file = document.getElementById('zf-file').files[0];
   if (!file) { alert('Bitte ein Foto auswählen.'); return; }
+
+  const gebaeude = document.getElementById('zf-gebaeude').value;
+  const typ      = document.getElementById('zf-typ').value;
+  const bereich  = document.getElementById('zf-bereich').value || 'Allgemein';
+  const datum    = document.getElementById('zf-datum').value;
+  const saveBtn  = document.querySelector('#modal-zustand .btn-primary');
+
+  if (typeof window._uploadFoto === 'function') {
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Lade hoch…'; }
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `zustand/${Date.now()}_${safeName}`;
+    window._uploadFoto(file, path).then(({ url, storagePath }) => {
+      const foto = { id: Date.now() + Math.random(), src: url, storagePath, gebaeude, typ, bereich, datum };
+      if (!state.zustandFotos) state.zustandFotos = [];
+      state.zustandFotos.unshift(foto);
+      markDirty(); save();
+      closeZustandModal();
+      renderZustand();
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Speichern'; }
+    }).catch(e => {
+      console.error('Storage-Upload fehlgeschlagen, nutze base64:', e);
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Speichern'; }
+      _saveZustandFotoBase64(file, gebaeude, typ, bereich, datum);
+    });
+  } else {
+    _saveZustandFotoBase64(file, gebaeude, typ, bereich, datum);
+  }
+}
+
+function _saveZustandFotoBase64(file, gebaeude, typ, bereich, datum) {
   const reader = new FileReader();
   reader.onload = (e) => {
-    const original = e.target.result;
-    // Vorschau für App: max 800px
-    resizeImage(original, 800, 0.82, (srcThumb) => {
-      // HD für Druck: max 3000px, 92% Qualität — scharf bis A1
-      resizeImage(original, 3000, 0.92, (srcHD) => {
-        const foto = {
-          id: Date.now() + Math.random(),
-          src: srcThumb,
-          srcHD: srcHD,
-          gebaeude: document.getElementById('zf-gebaeude').value,
-          typ: document.getElementById('zf-typ').value,
-          bereich: document.getElementById('zf-bereich').value || 'Allgemein',
-          datum: document.getElementById('zf-datum').value,
-        };
+    resizeImage(e.target.result, 800, 0.82, (srcThumb) => {
+      resizeImage(e.target.result, 3000, 0.92, (srcHD) => {
+        const foto = { id: Date.now() + Math.random(), src: srcThumb, srcHD, gebaeude, typ, bereich, datum };
         if (!state.zustandFotos) state.zustandFotos = [];
         state.zustandFotos.unshift(foto);
         markDirty(); save();
@@ -3428,7 +3574,11 @@ function setVergleichNachher(id) {
 }
 
 function deleteZustandFoto(id) {
-  state.zustandFotos = state.zustandFotos.filter(f => f.id != id);
+  const f = state.zustandFotos.find(x => x.id == id);
+  if (f && f.storagePath && typeof window._deleteFotoFromStorage === 'function') {
+    window._deleteFotoFromStorage(f.storagePath);
+  }
+  state.zustandFotos = state.zustandFotos.filter(x => x.id != id);
   markDirty(); save();
   renderZustand();
 }
@@ -4040,6 +4190,8 @@ let editTeamId = null;
 let editHelferId = null;
 let tmFotoData = null;
 let hfFotoData = null;
+let _tmFotoFile = null; // File für Storage-Upload
+let _hfFotoFile = null;
 let activeWirTab = 'team';
 
 function showWirTab(tab) {
@@ -4104,12 +4256,13 @@ function openTeamModal(id) {
 }
 function closeTeamModal() {
   document.getElementById('modal-team').classList.remove('open');
-  editTeamId = null; tmFotoData = null;
+  editTeamId = null; tmFotoData = null; _tmFotoFile = null;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tm-foto').addEventListener('change', function() {
     const f = this.files[0]; if (!f) return;
+    _tmFotoFile = f;
     const r = new FileReader();
     r.onload = e => {
       tmFotoData = e.target.result;
@@ -4119,6 +4272,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('hf-foto').addEventListener('change', function() {
     const f = this.files[0]; if (!f) return;
+    _hfFotoFile = f;
     const r = new FileReader();
     r.onload = e => {
       hfFotoData = e.target.result;
@@ -4130,9 +4284,23 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('modal-helfer').addEventListener('click', function(e) { if(e.target===this) closeHelferModal(); });
 });
 
-function saveTeamPerson() {
+async function saveTeamPerson() {
   const name = document.getElementById('tm-name').value.trim();
   if (!name) { alert('Bitte Name eingeben.'); return; }
+  const saveBtn = document.querySelector('#modal-team .btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = _tmFotoFile ? 'Lade hoch…' : 'Speichern…'; }
+
+  let fotoUrl = tmFotoData; // ggf. bereits eine URL (unverändertes Foto)
+  if (_tmFotoFile && typeof window._uploadFoto === 'function') {
+    try {
+      const personId = editTeamId || Date.now();
+      const safeName = _tmFotoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `team/${personId}_${safeName}`;
+      const { url } = await window._uploadFoto(_tmFotoFile, path);
+      fotoUrl = url;
+    } catch(e) { console.error('Team-Foto Upload fehlgeschlagen:', e); }
+  }
+
   const entry = {
     id: editTeamId || Date.now(),
     name,
@@ -4140,7 +4308,7 @@ function saveTeamPerson() {
     rolle: document.getElementById('tm-rolle').value.trim(),
     bio: document.getElementById('tm-bio').value.trim(),
     vision: document.getElementById('tm-vision').value.trim(),
-    foto: tmFotoData
+    foto: fotoUrl
   };
   if (!state.team) state.team = [];
   if (editTeamId) {
@@ -4149,6 +4317,8 @@ function saveTeamPerson() {
   } else {
     state.team.push(entry);
   }
+  _tmFotoFile = null;
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Speichern'; }
   markDirty(); save(); closeTeamModal(); renderWir();
 }
 
@@ -4189,12 +4359,26 @@ function openHelferModal(id) {
 }
 function closeHelferModal() {
   document.getElementById('modal-helfer').classList.remove('open');
-  editHelferId = null; hfFotoData = null;
+  editHelferId = null; hfFotoData = null; _hfFotoFile = null;
 }
 
-function saveHelferPerson() {
+async function saveHelferPerson() {
   const name = document.getElementById('hf-name').value.trim();
   if (!name) { alert('Bitte Name eingeben.'); return; }
+  const saveBtn = document.querySelector('#modal-helfer .btn-primary');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = _hfFotoFile ? 'Lade hoch…' : 'Speichern…'; }
+
+  let fotoUrl = hfFotoData;
+  if (_hfFotoFile && typeof window._uploadFoto === 'function') {
+    try {
+      const helferId = editHelferId || Date.now();
+      const safeName = _hfFotoFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `helfer/${helferId}_${safeName}`;
+      const { url } = await window._uploadFoto(_hfFotoFile, path);
+      fotoUrl = url;
+    } catch(e) { console.error('Helfer-Foto Upload fehlgeschlagen:', e); }
+  }
+
   const entry = {
     id: editHelferId || Date.now(),
     name,
@@ -4202,7 +4386,7 @@ function saveHelferPerson() {
     beitrag: document.getElementById('hf-beitrag').value.trim(),
     datum: document.getElementById('hf-datum').value.trim(),
     emoji: document.getElementById('hf-emoji').value || '⭐',
-    foto: hfFotoData
+    foto: fotoUrl
   };
   if (!state.helfer) state.helfer = [];
   if (editHelferId) {
@@ -4211,6 +4395,8 @@ function saveHelferPerson() {
   } else {
     state.helfer.push(entry);
   }
+  _hfFotoFile = null;
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Hinzufügen'; }
   markDirty(); save(); closeHelferModal(); renderWir();
 }
 
@@ -4302,18 +4488,37 @@ function renderWir() {
 function handleGruppenfoto(input) {
   const f = input.files[0];
   if (!f) return;
-  const r = new FileReader();
-  r.onload = e => {
-    state.gruppenfoto = e.target.result;
-    markDirty(); save();
-    renderGruppenfoto();
-  };
-  r.readAsDataURL(f);
+  if (typeof window._uploadFoto === 'function') {
+    const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `gruppenfoto/${Date.now()}_${safeName}`;
+    window._uploadFoto(f, path).then(({ url, storagePath }) => {
+      if (state.gruppenFotoPath && typeof window._deleteFotoFromStorage === 'function') {
+        window._deleteFotoFromStorage(state.gruppenFotoPath);
+      }
+      state.gruppenfoto = url;
+      state.gruppenFotoPath = storagePath;
+      markDirty(); save();
+      renderGruppenfoto();
+    }).catch(e => {
+      console.error('Storage-Upload fehlgeschlagen, nutze base64:', e);
+      const r = new FileReader();
+      r.onload = ev => { state.gruppenfoto = ev.target.result; markDirty(); save(); renderGruppenfoto(); };
+      r.readAsDataURL(f);
+    });
+  } else {
+    const r = new FileReader();
+    r.onload = e => { state.gruppenfoto = e.target.result; markDirty(); save(); renderGruppenfoto(); };
+    r.readAsDataURL(f);
+  }
 }
 
 function deleteGruppenfoto() {
   if (!confirm('Gemeinschaftsfoto entfernen?')) return;
+  if (state.gruppenFotoPath && typeof window._deleteFotoFromStorage === 'function') {
+    window._deleteFotoFromStorage(state.gruppenFotoPath);
+  }
   state.gruppenfoto = null;
+  state.gruppenFotoPath = null;
   markDirty(); save();
   renderGruppenfoto();
 }
