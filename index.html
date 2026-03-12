@@ -1341,6 +1341,12 @@
     border-radius:3px; font-family:'IBM Plex Mono',monospace;
     font-size:11px; color:#b5512a; display:none;
   }
+  .login-info {
+    margin-top:14px; padding:10px 14px;
+    background:rgba(201,168,76,0.1); border:1px solid rgba(201,168,76,0.3);
+    border-radius:3px; font-family:'IBM Plex Mono',monospace;
+    font-size:11px; color:var(--gold); display:none;
+  }
 </style>
 </head>
 <body>
@@ -1361,6 +1367,7 @@
     </div>
     <button class="login-btn" id="login-btn">Anmelden</button>
     <div class="login-error" id="login-error">Falsche E-Mail oder falsches Passwort.</div>
+    <div class="login-info"  id="login-info"></div>
   </div>
 </div>
 
@@ -1439,8 +1446,13 @@
   const btn     = document.getElementById('login-btn');
   const errMsg  = document.getElementById('login-error');
 
-  // Logout-Funktion global verfügbar (für Session-Timer)
-  window._doLogout = () => signOut(auth).then(() => location.reload());
+  // Logout-Funktion global verfügbar (für Session-Timer und Session-Kick)
+  window._doLogout = (reason) => {
+    if (reason) sessionStorage.setItem('logout_reason', reason);
+    // Laufende Session-Prüfung stoppen
+    if (typeof window._stopSessionWatch === 'function') window._stopSessionWatch();
+    return signOut(auth).then(() => location.reload());
+  };
 
   // Kein erzwungenes signOut beim Start → Session bleibt nach Refresh bestehen
   onAuthStateChanged(auth, async user => {
@@ -1481,13 +1493,65 @@
         if (typeof window._applyPermissions === 'function') window._applyPermissions(window._currentUser);
       }
 
+      // ── Einzel-Session ──────────────────────────────────────────
+      // Einzigartigen Token erzeugen und in Firestore registrieren.
+      // Jedes neue Login überschreibt den Token → alte Geräte werden
+      // beim nächsten Check automatisch abgemeldet.
+      const myToken = (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36));
+      window._mySessionToken = myToken;
+      const sessDoc = doc(db, 'bautagebuch', 'sessions');
+      try {
+        await setDoc(sessDoc, { [user.uid]: { token: myToken, at: Date.now() } }, { merge: true });
+      } catch(e) { console.warn('Session-Token speichern:', e); }
+
+      async function _checkSession() {
+        if (!window._mySessionToken) return;
+        try {
+          const snap = await getDoc(sessDoc);
+          const stored = snap.data()?.[user.uid]?.token;
+          if (stored && stored !== window._mySessionToken) {
+            window._doLogout('kicked');
+          }
+        } catch(e) { /* Netzwerkfehler ignorieren */ }
+      }
+
+      const _sessIntv = setInterval(_checkSession, 30000);
+      const _onVisible = () => { if (!document.hidden) _checkSession(); };
+      window.addEventListener('focus', _onVisible);
+      window.addEventListener('visibilitychange', _onVisible);
+
+      window._stopSessionWatch = () => {
+        clearInterval(_sessIntv);
+        window.removeEventListener('focus', _onVisible);
+        window.removeEventListener('visibilitychange', _onVisible);
+        window._mySessionToken = null;
+      };
+      // ────────────────────────────────────────────────────────────
+
       // Session-Timer starten
       if (typeof window._startSessionTimer === 'function') window._startSessionTimer();
 
     } else {
+      if (typeof window._stopSessionWatch === 'function') {
+        window._stopSessionWatch();
+        window._stopSessionWatch = null;
+      }
       overlay.style.display = 'flex';
       overlay.classList.remove('hidden');
       if (typeof window._stopSessionTimer === 'function') window._stopSessionTimer();
+
+      // "Anderes Gerät"-Hinweis anzeigen
+      const reason = sessionStorage.getItem('logout_reason');
+      sessionStorage.removeItem('logout_reason');
+      const infoEl = document.getElementById('login-info');
+      if (infoEl) {
+        if (reason === 'kicked') {
+          infoEl.textContent = '📱 Du wurdest auf einem anderen Gerät angemeldet. Bitte erneut einloggen.';
+          infoEl.style.display = 'block';
+        } else {
+          infoEl.style.display = 'none';
+        }
+      }
     }
   });
 
