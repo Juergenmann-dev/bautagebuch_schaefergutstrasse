@@ -1439,9 +1439,13 @@
         const isAdmin = user.uid === ADMIN_UID || user.email === ADMIN_EMAIL;
         window._currentUser = { uid: user.uid, email: user.email, isAdmin, permissions: null, usersData: {} };
 
-        // Nutzerzugang laden
+        // Nutzerzugang + State parallel laden
         try {
-          let usersData = await window._loadUserAccess();
+          const [usersData, fsState] = await Promise.all([
+            window._loadUserAccess(),
+            window._loadState()
+          ]);
+
           // Admin-Eintrag beim ersten Login anlegen
           if (isAdmin && !usersData[user.uid]) {
             usersData[user.uid] = { name: 'Admin', email: user.email, isAdmin: true, permissions: null };
@@ -1453,27 +1457,23 @@
             window._currentUser.permissions = myData.permissions || {};
             window._currentUser.name = myData.name;
           } else if (!isAdmin && !myData) {
-            // Nutzer existiert nicht → kein Zugriff
-            window._currentUser.permissions = null;
             window._currentUser.noAccess = true;
           }
-        } catch(e) {
-          console.warn('Nutzerzugang laden fehlgeschlagen:', e);
-        }
 
-        // Permissions anwenden
-        if (typeof window._applyPermissions === 'function') {
-          window._applyPermissions(window._currentUser);
-        }
+          // Permissions sofort anwenden
+          if (typeof window._applyPermissions === 'function') {
+            window._applyPermissions(window._currentUser);
+          }
 
-        // State laden
-        try {
-          const fsState = await window._loadState();
+          // State einspielen
           if (fsState && Object.keys(fsState).length > 0 && typeof window._applyFirestoreState === 'function') {
             window._applyFirestoreState(fsState);
           }
         } catch(e) {
-          console.warn('Firestore State laden fehlgeschlagen:', e);
+          console.warn('Firebase laden fehlgeschlagen:', e);
+          if (typeof window._applyPermissions === 'function') {
+            window._applyPermissions(window._currentUser);
+          }
         }
       } else {
         overlay.style.display = 'flex';
@@ -2982,6 +2982,7 @@ function renderAdmin() {
 
   container.innerHTML = Object.entries(usersData).map(([uid, user]) => {
     const isThisAdmin = user.isAdmin === true;
+    const isMe = uid === window._currentUser?.uid;
     const permChecks = ALL_SECTIONS.map(s => `
       <label class="perm-toggle">
         <input type="checkbox" ${user.permissions && user.permissions[s.id] ? 'checked' : ''}
@@ -2993,11 +2994,11 @@ function renderAdmin() {
       <div class="admin-user-header">
         <span class="admin-user-name">${user.name || '—'}</span>
         <span class="admin-user-email">${user.email || uid}</span>
-        ${isThisAdmin
-          ? '<span class="admin-badge">ADMIN</span>'
-          : `<button class="admin-del-btn" onclick="adminDeleteUser('${uid}')">✕ Entfernen</button>`}
+        ${isThisAdmin ? '<span class="admin-badge">ADMIN</span>' : ''}
+        ${!isMe ? `<button class="admin-del-btn" onclick="adminDeleteUser('${uid}')">✕ Entfernen</button>` : ''}
       </div>
-      ${isThisAdmin ? '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--text-muted);">Vollzugriff – keine Einschränkungen</span>'
+      ${isThisAdmin
+        ? '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--text-muted);">Vollzugriff – keine Einschränkungen</span>'
         : `<div class="admin-permissions">${permChecks}</div>`}
     </div>`;
   }).join('');
