@@ -77,6 +77,10 @@
   .header-stat { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
   .stat-val { color: var(--gold); font-weight: 500; font-size: 13px; }
   .stat-lbl { color: var(--text-muted); }
+  #session-timer-stat { display: none; }
+  #session-timer-stat .stat-val { transition: color 0.5s; }
+  #session-timer-stat.warn .stat-val { color: #e07040; }
+  #session-timer-stat.crit .stat-val { color: #c03020; }
 
   /* ── SIDEBAR ── */
   .app-body {
@@ -1533,6 +1537,10 @@
     <div class="header-stat">
       <span class="stat-val" id="stat-fortschritt">0%</span>
       <span class="stat-lbl">Fortschritt</span>
+    </div>
+    <div class="header-stat" id="session-timer-stat" title="Verbleibende Sitzungszeit — wird bei Aktivität zurückgesetzt">
+      <span class="stat-val" id="session-timer-val">5:00</span>
+      <span class="stat-lbl">Sitzung</span>
     </div>
     <button onclick="downloadHTML()" title="Aktuelle Version herunterladen — Daten sind eingebettet" style="
       background:rgba(201,168,76,0.12);border:1px solid var(--gold-dim);
@@ -5844,34 +5852,56 @@ function printRaumCollage() {
 // ── SESSION-TIMER ──────────────────────────────────────────────
 (function() {
   const TIMEOUT_MS = 5 * 60 * 1000;   // 5 Minuten Inaktivität → Logout
-  const WARN_MS    = 60 * 1000;        // Warnung 60 s vor Ablauf
+  const WARN_MS    = 60 * 1000;        // Banner 60 s vor Ablauf einblenden
 
   let _timerMain    = null;
   let _timerWarn    = null;
-  let _countdownInt = null;
+  let _tickInterval = null;
   let _active       = false;
+  let _deadline     = 0;
 
   const EVENTS = ['mousemove','mousedown','keydown','scroll','touchstart','click'];
 
-  function showWarning(seconds) {
+  function fmtTime(ms) {
+    const total = Math.max(0, Math.ceil(ms / 1000));
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  function updateHeaderTimer() {
+    const stat  = document.getElementById('session-timer-stat');
+    const val   = document.getElementById('session-timer-val');
+    if (!stat || !val) return;
+    const remaining = _deadline - Date.now();
+    val.textContent = fmtTime(remaining);
+    stat.classList.toggle('warn', remaining <= WARN_MS && remaining > 20000);
+    stat.classList.toggle('crit', remaining <= 20000);
+  }
+
+  function showWarning() {
     const el = document.getElementById('session-warning');
-    const cd = document.getElementById('session-countdown');
-    if (!el) return;
-    el.style.display = 'flex';
-    let s = seconds;
-    if (cd) cd.textContent = s;
-    clearInterval(_countdownInt);
-    _countdownInt = setInterval(() => {
-      s--;
-      if (cd) cd.textContent = Math.max(0, s);
-      if (s <= 0) clearInterval(_countdownInt);
-    }, 1000);
+    if (el) el.style.display = 'flex';
   }
 
   function hideWarning() {
     const el = document.getElementById('session-warning');
     if (el) el.style.display = 'none';
-    clearInterval(_countdownInt);
+    // Sync Banner-Countdown mit Header-Timer
+    const cd = document.getElementById('session-countdown');
+    if (cd) cd.textContent = Math.max(0, Math.round((_deadline - Date.now()) / 1000));
+  }
+
+  function startTick() {
+    clearInterval(_tickInterval);
+    _tickInterval = setInterval(() => {
+      updateHeaderTimer();
+      // Banner-Countdown synchron halten
+      const cd = document.getElementById('session-countdown');
+      if (cd && document.getElementById('session-warning')?.style.display !== 'none') {
+        cd.textContent = Math.max(0, Math.round((_deadline - Date.now()) / 1000));
+      }
+    }, 1000);
   }
 
   function reset() {
@@ -5879,10 +5909,15 @@ function printRaumCollage() {
     clearTimeout(_timerMain);
     clearTimeout(_timerWarn);
     hideWarning();
-    _timerWarn = setTimeout(() => showWarning(Math.round(WARN_MS / 1000)), TIMEOUT_MS - WARN_MS);
+
+    _deadline = Date.now() + TIMEOUT_MS;
+    updateHeaderTimer();
+
+    _timerWarn = setTimeout(showWarning, TIMEOUT_MS - WARN_MS);
     _timerMain = setTimeout(() => {
       _active = false;
       hideWarning();
+      clearInterval(_tickInterval);
       if (typeof window._doLogout === 'function') window._doLogout();
       else location.reload();
     }, TIMEOUT_MS);
@@ -5890,22 +5925,27 @@ function printRaumCollage() {
 
   window._startSessionTimer = function() {
     _active = true;
+    const stat = document.getElementById('session-timer-stat');
+    if (stat) stat.style.display = 'flex';
     EVENTS.forEach(ev => document.addEventListener(ev, reset, { passive: true }));
     window.addEventListener('focus', reset);
     window.addEventListener('visibilitychange', () => { if (!document.hidden) reset(); });
     reset();
+    startTick();
   };
 
   window._stopSessionTimer = function() {
     _active = false;
     clearTimeout(_timerMain);
     clearTimeout(_timerWarn);
+    clearInterval(_tickInterval);
     hideWarning();
+    const stat = document.getElementById('session-timer-stat');
+    if (stat) stat.style.display = 'none';
     EVENTS.forEach(ev => document.removeEventListener(ev, reset));
     window.removeEventListener('focus', reset);
   };
 
-  // Warnung manuell wegklicken / aktiv bleiben
   window._keepAlive = function() { reset(); };
 })();
 
