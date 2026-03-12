@@ -1371,6 +1371,7 @@
   import { firebaseConfig } from "./firebase-config.js";
 
   const ADMIN_UID   = '1nUxIOUkCAOq8vbhtnyWLChRwt72';
+  const ADMIN_EMAIL = 'familie.mann.hinrichs@gmail.com';
   const app         = initializeApp(firebaseConfig);
   const auth        = getAuth(app);
   const db          = getFirestore(app);
@@ -1426,7 +1427,7 @@
         overlay.classList.add('hidden');
         setTimeout(() => overlay.style.display = 'none', 400);
 
-        const isAdmin = user.uid === ADMIN_UID;
+        const isAdmin = user.uid === ADMIN_UID || user.email === ADMIN_EMAIL;
         window._currentUser = { uid: user.uid, email: user.email, isAdmin, permissions: null, usersData: {} };
 
         // Nutzerzugang laden
