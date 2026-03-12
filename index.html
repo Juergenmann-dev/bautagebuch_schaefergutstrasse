@@ -1430,56 +1430,56 @@
   const btn     = document.getElementById('login-btn');
   const errMsg  = document.getElementById('login-error');
 
-  signOut(auth).then(() => {
-    onAuthStateChanged(auth, async user => {
-      if (user) {
-        overlay.classList.add('hidden');
-        setTimeout(() => overlay.style.display = 'none', 400);
+  // Logout-Funktion global verfügbar (für Session-Timer)
+  window._doLogout = () => signOut(auth).then(() => location.reload());
 
-        const isAdmin = user.uid === ADMIN_UID || user.email === ADMIN_EMAIL;
-        window._currentUser = { uid: user.uid, email: user.email, isAdmin, permissions: null, usersData: {} };
+  // Kein erzwungenes signOut beim Start → Session bleibt nach Refresh bestehen
+  onAuthStateChanged(auth, async user => {
+    if (user) {
+      overlay.classList.add('hidden');
+      setTimeout(() => overlay.style.display = 'none', 400);
 
-        // Nutzerzugang + State parallel laden
-        try {
-          const [usersData, fsState] = await Promise.all([
-            window._loadUserAccess(),
-            window._loadState()
-          ]);
+      const isAdmin = user.uid === ADMIN_UID || user.email === ADMIN_EMAIL;
+      window._currentUser = { uid: user.uid, email: user.email, isAdmin, permissions: null, usersData: {} };
 
-          // Admin-Eintrag beim ersten Login anlegen
-          if (isAdmin && !usersData[user.uid]) {
-            usersData[user.uid] = { name: 'Admin', email: user.email, isAdmin: true, permissions: null };
-            await window._saveUserAccess(usersData);
-          }
-          window._currentUser.usersData = usersData;
-          const myData = usersData[user.uid];
-          if (!isAdmin && myData) {
-            window._currentUser.permissions = myData.permissions || {};
-            window._currentUser.name = myData.name;
-          } else if (!isAdmin && !myData) {
-            window._currentUser.noAccess = true;
-          }
+      // Nutzerzugang + State parallel laden
+      try {
+        const [usersData, fsState] = await Promise.all([
+          window._loadUserAccess(),
+          window._loadState()
+        ]);
 
-          // Permissions sofort anwenden
-          if (typeof window._applyPermissions === 'function') {
-            window._applyPermissions(window._currentUser);
-          }
-
-          // State einspielen
-          if (fsState && Object.keys(fsState).length > 0 && typeof window._applyFirestoreState === 'function') {
-            window._applyFirestoreState(fsState);
-          }
-        } catch(e) {
-          console.warn('Firebase laden fehlgeschlagen:', e);
-          if (typeof window._applyPermissions === 'function') {
-            window._applyPermissions(window._currentUser);
-          }
+        // Admin-Eintrag beim ersten Login anlegen
+        if (isAdmin && !usersData[user.uid]) {
+          usersData[user.uid] = { name: 'Admin', email: user.email, isAdmin: true, permissions: null };
+          await window._saveUserAccess(usersData);
         }
-      } else {
-        overlay.style.display = 'flex';
-        overlay.classList.remove('hidden');
+        window._currentUser.usersData = usersData;
+        const myData = usersData[user.uid];
+        if (!isAdmin && myData) {
+          window._currentUser.permissions = myData.permissions || {};
+          window._currentUser.name = myData.name;
+        } else if (!isAdmin && !myData) {
+          window._currentUser.noAccess = true;
+        }
+
+        if (typeof window._applyPermissions === 'function') window._applyPermissions(window._currentUser);
+        if (fsState && Object.keys(fsState).length > 0 && typeof window._applyFirestoreState === 'function') {
+          window._applyFirestoreState(fsState);
+        }
+      } catch(e) {
+        console.warn('Firebase laden fehlgeschlagen:', e);
+        if (typeof window._applyPermissions === 'function') window._applyPermissions(window._currentUser);
       }
-    });
+
+      // Session-Timer starten
+      if (typeof window._startSessionTimer === 'function') window._startSessionTimer();
+
+    } else {
+      overlay.style.display = 'flex';
+      overlay.classList.remove('hidden');
+      if (typeof window._stopSessionTimer === 'function') window._stopSessionTimer();
+    }
   });
 
   async function doLogin() {
@@ -2149,11 +2149,18 @@
   </div>
 
   <!-- Kein-Zugriff-Overlay -->
+  <!-- Session-Ablauf-Warnung -->
+  <div id="session-warning" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--rust,#b05040);border-radius:6px;padding:12px 20px;z-index:9990;align-items:center;gap:16px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);box-shadow:0 4px 24px rgba(0,0,0,0.55);white-space:nowrap;">
+    <span style="color:var(--text-muted);">⏱ Sitzung läuft ab in <strong id="session-countdown" style="color:var(--gold);">60</strong> s</span>
+    <button onclick="window._keepAlive()" style="background:rgba(201,168,76,0.15);border:1px solid var(--gold-dim);color:var(--gold);padding:6px 16px;border-radius:3px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.05em;">Aktiv bleiben</button>
+    <button onclick="window._doLogout()" style="background:transparent;border:none;color:var(--text-muted);padding:4px 8px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;">Jetzt abmelden</button>
+  </div>
+
   <div id="no-access-overlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:900;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
     <div style="font-size:48px;">🔒</div>
     <div style="font-family:'Playfair Display',serif;font-size:22px;color:var(--gold);">Kein Zugriff</div>
     <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-muted);text-align:center;">Dein Konto hat noch keine Berechtigung.<br>Bitte den Administrator kontaktieren.</div>
-    <button id="logout-btn-noaccess" style="margin-top:8px;background:rgba(201,168,76,0.12);border:1px solid var(--gold-dim);color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.06em;padding:8px 18px;border-radius:3px;cursor:pointer;" onclick="location.reload()">⏻ Abmelden</button>
+    <button id="logout-btn-noaccess" style="margin-top:8px;background:rgba(201,168,76,0.12);border:1px solid var(--gold-dim);color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.06em;padding:8px 18px;border-radius:3px;cursor:pointer;" onclick="window._doLogout ? window._doLogout() : location.reload()">⏻ Abmelden</button>
   </div>
 
 </main>
@@ -5833,6 +5840,74 @@ function printRaumCollage() {
   </body></html>`);
   win.document.close();
 }
+
+// ── SESSION-TIMER ──────────────────────────────────────────────
+(function() {
+  const TIMEOUT_MS = 5 * 60 * 1000;   // 5 Minuten Inaktivität → Logout
+  const WARN_MS    = 60 * 1000;        // Warnung 60 s vor Ablauf
+
+  let _timerMain    = null;
+  let _timerWarn    = null;
+  let _countdownInt = null;
+  let _active       = false;
+
+  const EVENTS = ['mousemove','mousedown','keydown','scroll','touchstart','click'];
+
+  function showWarning(seconds) {
+    const el = document.getElementById('session-warning');
+    const cd = document.getElementById('session-countdown');
+    if (!el) return;
+    el.style.display = 'flex';
+    let s = seconds;
+    if (cd) cd.textContent = s;
+    clearInterval(_countdownInt);
+    _countdownInt = setInterval(() => {
+      s--;
+      if (cd) cd.textContent = Math.max(0, s);
+      if (s <= 0) clearInterval(_countdownInt);
+    }, 1000);
+  }
+
+  function hideWarning() {
+    const el = document.getElementById('session-warning');
+    if (el) el.style.display = 'none';
+    clearInterval(_countdownInt);
+  }
+
+  function reset() {
+    if (!_active) return;
+    clearTimeout(_timerMain);
+    clearTimeout(_timerWarn);
+    hideWarning();
+    _timerWarn = setTimeout(() => showWarning(Math.round(WARN_MS / 1000)), TIMEOUT_MS - WARN_MS);
+    _timerMain = setTimeout(() => {
+      _active = false;
+      hideWarning();
+      if (typeof window._doLogout === 'function') window._doLogout();
+      else location.reload();
+    }, TIMEOUT_MS);
+  }
+
+  window._startSessionTimer = function() {
+    _active = true;
+    EVENTS.forEach(ev => document.addEventListener(ev, reset, { passive: true }));
+    window.addEventListener('focus', reset);
+    window.addEventListener('visibilitychange', () => { if (!document.hidden) reset(); });
+    reset();
+  };
+
+  window._stopSessionTimer = function() {
+    _active = false;
+    clearTimeout(_timerMain);
+    clearTimeout(_timerWarn);
+    hideWarning();
+    EVENTS.forEach(ev => document.removeEventListener(ev, reset));
+    window.removeEventListener('focus', reset);
+  };
+
+  // Warnung manuell wegklicken / aktiv bleiben
+  window._keepAlive = function() { reset(); };
+})();
 
 </script>
 <!-- BUDGET MODAL -->
