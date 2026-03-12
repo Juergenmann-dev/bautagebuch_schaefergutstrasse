@@ -1366,7 +1366,8 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
-  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword }
+  import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence,
+           signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
   import { getFirestore, doc, setDoc, getDoc }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
@@ -1379,9 +1380,13 @@
   const app         = initializeApp(firebaseConfig);
   const auth        = getAuth(app);
 
-  // Sekundäre App-Instanz zum Anlegen neuer Nutzer (berührt den Admin-Login nicht)
+  // Session explizit in localStorage speichern → überlebt Browser-Refresh
+  await setPersistence(auth, browserLocalPersistence);
+
+  // Sekundäre App-Instanz zum Anlegen neuer Nutzer – kein Persistenz-Speicher
   const secondaryApp  = initializeApp(firebaseConfig, 'secondary');
   const secondaryAuth = getAuth(secondaryApp);
+  await setPersistence(secondaryAuth, inMemoryPersistence);
 
   window._createAuthUser = async (email, password) => {
     const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
