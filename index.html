@@ -1376,7 +1376,7 @@
   import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence,
            signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
-  import { getFirestore, doc, setDoc, getDoc }
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
   import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-storage.js";
@@ -1504,26 +1504,17 @@
         await setDoc(sessDoc, { [user.uid]: { token: myToken, at: Date.now() } }, { merge: true });
       } catch(e) { console.warn('Session-Token speichern:', e); }
 
-      async function _checkSession() {
-        if (!window._mySessionToken) return;
-        try {
-          const snap = await getDoc(sessDoc);
-          const stored = snap.data()?.[user.uid]?.token;
-          if (stored && stored !== window._mySessionToken) {
-            window._doLogout('kicked');
-          }
-        } catch(e) { /* Netzwerkfehler ignorieren */ }
-      }
-
-      const _sessIntv = setInterval(_checkSession, 30000);
-      const _onVisible = () => { if (!document.hidden) _checkSession(); };
-      window.addEventListener('focus', _onVisible);
-      window.addEventListener('visibilitychange', _onVisible);
+      // Echtzeit-Listener statt Polling → funktioniert auch auf dem Handy im Hintergrund
+      const _unsubSession = onSnapshot(sessDoc, (snap) => {
+        const stored = snap.data()?.[user.uid]?.token;
+        if (stored && stored !== window._mySessionToken) {
+          _unsubSession();
+          window._doLogout('kicked');
+        }
+      }, () => { /* Listener-Fehler ignorieren */ });
 
       window._stopSessionWatch = () => {
-        clearInterval(_sessIntv);
-        window.removeEventListener('focus', _onVisible);
-        window.removeEventListener('visibilitychange', _onVisible);
+        _unsubSession();
         window._mySessionToken = null;
       };
       // ────────────────────────────────────────────────────────────
