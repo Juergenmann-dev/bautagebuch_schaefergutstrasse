@@ -1362,7 +1362,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
-  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
   import { getFirestore, doc, setDoc, getDoc }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
@@ -1374,13 +1374,22 @@
   const ADMIN_EMAIL = 'familie.mann.hinrichs@gmail.com';
   const app         = initializeApp(firebaseConfig);
   const auth        = getAuth(app);
+
+  // Sekundäre App-Instanz zum Anlegen neuer Nutzer (berührt den Admin-Login nicht)
+  const secondaryApp  = initializeApp(firebaseConfig, 'secondary');
+  const secondaryAuth = getAuth(secondaryApp);
+
+  window._createAuthUser = async (email, password) => {
+    const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+    const newUid = cred.user.uid;
+    await signOut(secondaryAuth); // Sekundären Login sofort beenden
+    return newUid;
+  };
   const db          = getFirestore(app);
   const storage     = getStorage(app);
   const STATE_DOC   = doc(db, 'bautagebuch', 'state');
   const USERS_DOC   = doc(db, 'bautagebuch', 'userAccess');
 
-  // API-Key für REST-basierte Nutzeranlage (kein Secret – ist öffentlich in firebase-config)
-  window._firebaseApiKey = firebaseConfig.apiKey;
 
   // ── Firestore: State ──────────────────────────────────────────
   window._saveState = async (stateData) => {
@@ -3010,26 +3019,25 @@ async function adminCreateUser() {
   const email = document.getElementById('admin-new-email').value.trim();
   const pw    = document.getElementById('admin-new-pw').value;
   const msg   = document.getElementById('admin-create-msg');
+  const btn   = document.querySelector('#view-admin .btn-primary');
+
   if (!email || !pw) { msg.style.color='var(--rust)'; msg.textContent = 'E-Mail und Passwort erforderlich.'; return; }
   if (pw.length < 6)  { msg.style.color='var(--rust)'; msg.textContent = 'Passwort muss mind. 6 Zeichen lang sein.'; return; }
 
-  try {
-    const apiKey = window._firebaseApiKey;
-    const resp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: pw, returnSecureToken: true })
-    });
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message);
+  if (btn) { btn.disabled = true; btn.textContent = 'Anlegen…'; }
+  msg.textContent = '';
 
-    const newUid = data.localId;
+  try {
+    // Sekundäre App-Instanz: Admin bleibt eingeloggt
+    const newUid = await window._createAuthUser(email, pw);
+
     // Berechtigungen aus Checkboxen lesen
     const permissions = {};
     ALL_SECTIONS.forEach(s => {
       const cb = document.getElementById('new-perm-' + s.id);
       if (cb) permissions[s.id] = cb.checked;
     });
+
     const usersData = window._currentUser.usersData || {};
     usersData[newUid] = { name: name || email, email, isAdmin: false, permissions };
     await window._saveUserAccess(usersData);
@@ -3038,12 +3046,19 @@ async function adminCreateUser() {
     document.getElementById('admin-new-name').value  = '';
     document.getElementById('admin-new-email').value = '';
     document.getElementById('admin-new-pw').value    = '';
+    // Berechtigungs-Checkboxen zurücksetzen (nur Dashboard)
+    ALL_SECTIONS.forEach(s => {
+      const cb = document.getElementById('new-perm-' + s.id);
+      if (cb) cb.checked = (s.id === 'dashboard');
+    });
     msg.style.color = 'var(--gold)';
     msg.textContent = '✓ Nutzer angelegt: ' + (name || email);
     renderAdmin();
   } catch(e) {
     msg.style.color = 'var(--rust)';
     msg.textContent = 'Fehler: ' + e.message;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '+ Nutzer anlegen'; }
   }
 }
 
