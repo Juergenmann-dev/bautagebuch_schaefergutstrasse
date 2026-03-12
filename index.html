@@ -2123,11 +2123,13 @@
       <!-- Nutzer hinzufügen -->
       <div class="info-block" style="margin-bottom:28px;">
         <h3>Neuen Nutzer anlegen</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
           <div><label class="form-label">Name</label><input class="form-input" id="admin-new-name" placeholder="z.B. Steffi"></div>
           <div><label class="form-label">E-Mail</label><input class="form-input" id="admin-new-email" type="email" placeholder="email@beispiel.de"></div>
           <div><label class="form-label">Passwort</label><input class="form-input" id="admin-new-pw" type="password" placeholder="mind. 6 Zeichen"></div>
         </div>
+        <label class="form-label" style="margin-bottom:10px;display:block;">Bereiche freischalten</label>
+        <div class="admin-permissions" id="admin-new-permissions" style="margin-bottom:16px;"></div>
         <button class="btn btn-primary" onclick="adminCreateUser()">+ Nutzer anlegen</button>
         <div id="admin-create-msg" style="margin-top:8px;font-size:12px;font-family:'IBM Plex Mono',monospace;"></div>
       </div>
@@ -2949,6 +2951,17 @@ function renderAll() {
 // ── ADMIN ─────────────────────────────────────────────────────
 function renderAdmin() {
   if (!window._currentUser?.isAdmin) return;
+
+  // Berechtigungs-Checkboxen im Anlegen-Formular rendern
+  const newPerms = document.getElementById('admin-new-permissions');
+  if (newPerms && newPerms.innerHTML === '') {
+    newPerms.innerHTML = ALL_SECTIONS.map(s => `
+      <label class="perm-toggle">
+        <input type="checkbox" id="new-perm-${s.id}" ${s.id === 'dashboard' ? 'checked' : ''}>
+        <span>${s.icon} ${s.label}</span>
+      </label>`).join('');
+  }
+
   const container = document.getElementById('admin-users-list');
   if (!container) return;
   const usersData = window._currentUser.usersData || {};
@@ -3011,8 +3024,14 @@ async function adminCreateUser() {
     if (data.error) throw new Error(data.error.message);
 
     const newUid = data.localId;
+    // Berechtigungen aus Checkboxen lesen
+    const permissions = {};
+    ALL_SECTIONS.forEach(s => {
+      const cb = document.getElementById('new-perm-' + s.id);
+      if (cb) permissions[s.id] = cb.checked;
+    });
     const usersData = window._currentUser.usersData || {};
-    usersData[newUid] = { name: name || email, email, isAdmin: false, permissions: { dashboard: true } };
+    usersData[newUid] = { name: name || email, email, isAdmin: false, permissions };
     await window._saveUserAccess(usersData);
     window._currentUser.usersData = usersData;
 
