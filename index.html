@@ -1134,6 +1134,19 @@
     justify-content: center;
     gap: 12px;
   }
+  /* ── ADMIN ── */
+  .admin-user-card { background:var(--surface2); border:1px solid var(--border); border-radius:6px; padding:18px 20px; margin-bottom:16px; }
+  .admin-user-header { display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .admin-user-name { font-family:'Playfair Display',serif; font-size:16px; color:var(--text); }
+  .admin-user-email { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-muted); }
+  .admin-badge { background:rgba(201,168,76,0.18); border:1px solid var(--gold-dim); color:var(--gold); font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:0.08em; padding:2px 8px; border-radius:3px; }
+  .admin-permissions { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; }
+  .perm-toggle { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--surface3); border-radius:4px; cursor:pointer; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-dim); border:1px solid transparent; transition:border-color 0.15s; }
+  .perm-toggle:hover { border-color:var(--border-light); }
+  .perm-toggle input[type=checkbox] { accent-color:var(--gold); width:14px; height:14px; cursor:pointer; }
+  .perm-toggle input:checked + span { color:var(--text); }
+  .admin-del-btn { margin-left:auto; background:rgba(181,81,42,0.15); border:1px solid rgba(181,81,42,0.3); color:var(--rust); font-family:'IBM Plex Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; cursor:pointer; }
+  .admin-del-btn:hover { background:rgba(181,81,42,0.3); }
   /* ── ZEITPLAN ── */
   .zp-timeline { position: relative; padding-left: 32px; }
   .zp-timeline::before {
@@ -1357,59 +1370,100 @@
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-storage.js";
   import { firebaseConfig } from "./firebase-config.js";
 
-  const app     = initializeApp(firebaseConfig);
-  const auth    = getAuth(app);
-  const db      = getFirestore(app);
-  const storage = getStorage(app);
+  const ADMIN_UID   = '1nUxIOUkCAOq8vbhtnyWLChRwt72';
+  const app         = initializeApp(firebaseConfig);
+  const auth        = getAuth(app);
+  const db          = getFirestore(app);
+  const storage     = getStorage(app);
+  const STATE_DOC   = doc(db, 'bautagebuch', 'state');
+  const USERS_DOC   = doc(db, 'bautagebuch', 'userAccess');
 
-  const STATE_DOC = doc(db, 'bautagebuch', 'state');
+  // API-Key für REST-basierte Nutzeranlage (kein Secret – ist öffentlich in firebase-config)
+  window._firebaseApiKey = firebaseConfig.apiKey;
 
-  // ── Firestore helpers (global) ────────────────────────────────
+  // ── Firestore: State ──────────────────────────────────────────
   window._saveState = async (stateData) => {
     const json = JSON.stringify(stateData);
     if (json.length > 950000) {
-      console.warn('State zu groß für Firestore (' + Math.round(json.length / 1024) + ' KB) – Cloud-Speicherung übersprungen');
+      console.warn('State zu groß für Firestore (' + Math.round(json.length / 1024) + ' KB) – übersprungen');
       return;
     }
     await setDoc(STATE_DOC, stateData);
   };
-
   window._loadState = async () => {
     const snap = await getDoc(STATE_DOC);
     return snap.exists() ? snap.data() : null;
   };
 
-  // ── Storage helpers (global) ──────────────────────────────────
+  // ── Firestore: Nutzerzugang ───────────────────────────────────
+  window._loadUserAccess = async () => {
+    const snap = await getDoc(USERS_DOC);
+    return snap.exists() ? snap.data() : {};
+  };
+  window._saveUserAccess = async (usersData) => {
+    await setDoc(USERS_DOC, usersData);
+  };
+
+  // ── Storage ───────────────────────────────────────────────────
   window._uploadFoto = async (file, path) => {
     const storageRef = ref(storage, path);
     const snap = await uploadBytes(storageRef, file);
     const url = await getDownloadURL(snap.ref);
     return { url, storagePath: path };
   };
-
   window._deleteFotoFromStorage = async (storagePath) => {
     if (!storagePath) return;
-    try { await deleteObject(ref(storage, storagePath)); } catch(e) { /* ignorieren wenn nicht gefunden */ }
+    try { await deleteObject(ref(storage, storagePath)); } catch(e) {}
   };
 
   const overlay = document.getElementById('login-overlay');
   const btn     = document.getElementById('login-btn');
   const errMsg  = document.getElementById('login-error');
 
-  // Beim Laden immer ausloggen → erst dann Auth-Listener starten
   signOut(auth).then(() => {
     onAuthStateChanged(auth, async user => {
       if (user) {
         overlay.classList.add('hidden');
         setTimeout(() => overlay.style.display = 'none', 400);
-        // Firestore-Daten laden (haben Vorrang vor localStorage)
+
+        const isAdmin = user.uid === ADMIN_UID;
+        window._currentUser = { uid: user.uid, email: user.email, isAdmin, permissions: null, usersData: {} };
+
+        // Nutzerzugang laden
+        try {
+          let usersData = await window._loadUserAccess();
+          // Admin-Eintrag beim ersten Login anlegen
+          if (isAdmin && !usersData[user.uid]) {
+            usersData[user.uid] = { name: 'Admin', email: user.email, isAdmin: true, permissions: null };
+            await window._saveUserAccess(usersData);
+          }
+          window._currentUser.usersData = usersData;
+          const myData = usersData[user.uid];
+          if (!isAdmin && myData) {
+            window._currentUser.permissions = myData.permissions || {};
+            window._currentUser.name = myData.name;
+          } else if (!isAdmin && !myData) {
+            // Nutzer existiert nicht → kein Zugriff
+            window._currentUser.permissions = null;
+            window._currentUser.noAccess = true;
+          }
+        } catch(e) {
+          console.warn('Nutzerzugang laden fehlgeschlagen:', e);
+        }
+
+        // Permissions anwenden
+        if (typeof window._applyPermissions === 'function') {
+          window._applyPermissions(window._currentUser);
+        }
+
+        // State laden
         try {
           const fsState = await window._loadState();
           if (fsState && Object.keys(fsState).length > 0 && typeof window._applyFirestoreState === 'function') {
             window._applyFirestoreState(fsState);
           }
         } catch(e) {
-          console.warn('Firestore laden fehlgeschlagen, nutze lokalen State:', e);
+          console.warn('Firestore State laden fehlgeschlagen:', e);
         }
       } else {
         overlay.style.display = 'flex';
@@ -1487,36 +1541,40 @@
 <nav class="sidebar">
   <div class="sidebar-group">
     <div class="sidebar-group-label">Übersicht</div>
-    <div class="nav-tab active" onclick="showView('dashboard')"><span class="tab-icon">🏠</span>Dashboard</div>
+    <div class="nav-tab active" data-view="dashboard" onclick="showView('dashboard')"><span class="tab-icon">🏠</span>Dashboard</div>
   </div>
   <div class="sidebar-group">
     <div class="sidebar-group-label">Tagebuch</div>
-    <div class="nav-tab" onclick="showView('tagebuch')"><span class="tab-icon">📋</span>Tagebuch</div>
-    <div class="nav-tab" onclick="showView('fotos')"><span class="tab-icon">📷</span>Fotos</div>
-    <div class="nav-tab" onclick="showView('notizen')"><span class="tab-icon">💡</span>Notizen</div>
+    <div class="nav-tab" data-view="tagebuch" onclick="showView('tagebuch')"><span class="tab-icon">📋</span>Tagebuch</div>
+    <div class="nav-tab" data-view="fotos" onclick="showView('fotos')"><span class="tab-icon">📷</span>Fotos</div>
+    <div class="nav-tab" data-view="notizen" onclick="showView('notizen')"><span class="tab-icon">💡</span>Notizen</div>
   </div>
   <div class="sidebar-group">
     <div class="sidebar-group-label">Planung</div>
-    <div class="nav-tab" onclick="showView('raeume')"><span class="tab-icon">🏗️</span>Räume &amp; Aufgaben</div>
-    <div class="nav-tab" onclick="showView('gewerke')"><span class="tab-icon">🔨</span>Gewerke</div>
-    <div class="nav-tab" onclick="showView('zeitplan')"><span class="tab-icon">📅</span>Zeitplan</div>
-    <div class="nav-tab" onclick="showView('behoerden')"><span class="tab-icon">🏛️</span>Planung &amp; Behörden</div>
+    <div class="nav-tab" data-view="raeume" onclick="showView('raeume')"><span class="tab-icon">🏗️</span>Räume &amp; Aufgaben</div>
+    <div class="nav-tab" data-view="gewerke" onclick="showView('gewerke')"><span class="tab-icon">🔨</span>Gewerke</div>
+    <div class="nav-tab" data-view="zeitplan" onclick="showView('zeitplan')"><span class="tab-icon">📅</span>Zeitplan</div>
+    <div class="nav-tab" data-view="behoerden" onclick="showView('behoerden')"><span class="tab-icon">🏛️</span>Planung &amp; Behörden</div>
   </div>
   <div class="sidebar-group">
     <div class="sidebar-group-label">Finanzen</div>
-    <div class="nav-tab" onclick="showView('kosten')"><span class="tab-icon">💶</span>Kosten</div>
-    <div class="nav-tab" onclick="showView('budget')"><span class="tab-icon">📊</span>Budget</div>
+    <div class="nav-tab" data-view="kosten" onclick="showView('kosten')"><span class="tab-icon">💶</span>Kosten</div>
+    <div class="nav-tab" data-view="budget" onclick="showView('budget')"><span class="tab-icon">📊</span>Budget</div>
   </div>
   <div class="sidebar-group">
     <div class="sidebar-group-label">Verwaltung</div>
-    <div class="nav-tab" onclick="showView('kontakte')"><span class="tab-icon">📞</span>Kontakte</div>
-    <div class="nav-tab" onclick="showView('dokumente')"><span class="tab-icon">📁</span>Dokumente</div>
-    <div class="nav-tab" onclick="showView('projekt')"><span class="tab-icon">⚙️</span>Projekt</div>
+    <div class="nav-tab" data-view="kontakte" onclick="showView('kontakte')"><span class="tab-icon">📞</span>Kontakte</div>
+    <div class="nav-tab" data-view="dokumente" onclick="showView('dokumente')"><span class="tab-icon">📁</span>Dokumente</div>
+    <div class="nav-tab" data-view="projekt" onclick="showView('projekt')"><span class="tab-icon">⚙️</span>Projekt</div>
   </div>
   <div class="sidebar-group">
     <div class="sidebar-group-label">Wir</div>
-    <div class="nav-tab" onclick="showView('wir')"><span class="tab-icon">👥</span>Das sind wir</div>
-    <div class="nav-tab" onclick="showView('zustand')"><span class="tab-icon">📸</span>So sieht's aus</div>
+    <div class="nav-tab" data-view="wir" onclick="showView('wir')"><span class="tab-icon">👥</span>Das sind wir</div>
+    <div class="nav-tab" data-view="zustand" onclick="showView('zustand')"><span class="tab-icon">📸</span>So sieht's aus</div>
+  </div>
+  <div class="sidebar-group" id="sidebar-group-admin" style="display:none;">
+    <div class="sidebar-group-label">Administration</div>
+    <div class="nav-tab" id="nav-tab-admin" data-view="admin" onclick="showView('admin')"><span class="tab-icon">🔐</span>Nutzerverwaltung</div>
   </div>
 </nav>
 
@@ -2053,6 +2111,37 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- ═══ NUTZERVERWALTUNG (Admin only) ═══ -->
+  <div class="view" id="view-admin">
+    <div style="max-width:860px;margin:0 auto;">
+      <h2 style="font-family:'Playfair Display',serif;font-size:22px;color:var(--gold);margin-bottom:6px;">Nutzerverwaltung</h2>
+      <p style="color:var(--text-muted);font-size:12px;font-family:'IBM Plex Mono',monospace;margin-bottom:28px;">Nur für den Administrator sichtbar</p>
+
+      <!-- Nutzer hinzufügen -->
+      <div class="info-block" style="margin-bottom:28px;">
+        <h3>Neuen Nutzer anlegen</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
+          <div><label class="form-label">Name</label><input class="form-input" id="admin-new-name" placeholder="z.B. Steffi"></div>
+          <div><label class="form-label">E-Mail</label><input class="form-input" id="admin-new-email" type="email" placeholder="email@beispiel.de"></div>
+          <div><label class="form-label">Passwort</label><input class="form-input" id="admin-new-pw" type="password" placeholder="mind. 6 Zeichen"></div>
+        </div>
+        <button class="btn btn-primary" onclick="adminCreateUser()">+ Nutzer anlegen</button>
+        <div id="admin-create-msg" style="margin-top:8px;font-size:12px;font-family:'IBM Plex Mono',monospace;"></div>
+      </div>
+
+      <!-- Nutzerliste -->
+      <div id="admin-users-list"></div>
+    </div>
+  </div>
+
+  <!-- Kein-Zugriff-Overlay -->
+  <div id="no-access-overlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:900;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
+    <div style="font-size:48px;">🔒</div>
+    <div style="font-family:'Playfair Display',serif;font-size:22px;color:var(--gold);">Kein Zugriff</div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-muted);text-align:center;">Dein Konto hat noch keine Berechtigung.<br>Bitte den Administrator kontaktieren.</div>
+    <button id="logout-btn-noaccess" style="margin-top:8px;background:rgba(201,168,76,0.12);border:1px solid var(--gold-dim);color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:0.06em;padding:8px 18px;border-radius:3px;cursor:pointer;" onclick="location.reload()">⏻ Abmelden</button>
   </div>
 
 </main>
@@ -2630,14 +2719,62 @@ function save() {
 }
 
 // ── NAVIGATION ────────────────────────────────────────────────
+// ── SEKTIONEN & BERECHTIGUNGEN ────────────────────────────────
+const ALL_SECTIONS = [
+  { id: 'dashboard', label: 'Dashboard', icon: '🏠' },
+  { id: 'tagebuch',  label: 'Tagebuch',  icon: '📋' },
+  { id: 'fotos',     label: 'Fotos',     icon: '📷' },
+  { id: 'notizen',   label: 'Notizen',   icon: '💡' },
+  { id: 'raeume',    label: 'Räume & Aufgaben', icon: '🏗️' },
+  { id: 'gewerke',   label: 'Gewerke',   icon: '🔨' },
+  { id: 'zeitplan',  label: 'Zeitplan',  icon: '📅' },
+  { id: 'behoerden', label: 'Planung & Behörden', icon: '🏛️' },
+  { id: 'kosten',    label: 'Kosten',    icon: '💶' },
+  { id: 'budget',    label: 'Budget',    icon: '📊' },
+  { id: 'kontakte',  label: 'Kontakte',  icon: '📞' },
+  { id: 'dokumente', label: 'Dokumente', icon: '📁' },
+  { id: 'projekt',   label: 'Projekt',   icon: '⚙️' },
+  { id: 'wir',       label: 'Das sind wir', icon: '👥' },
+  { id: 'zustand',   label: "So sieht's aus", icon: '📸' },
+];
+
+window._applyPermissions = function(currentUser) {
+  if (!currentUser) return;
+  const isAdmin = currentUser.isAdmin;
+
+  // Kein Zugriff
+  if (currentUser.noAccess) {
+    document.getElementById('no-access-overlay').style.display = 'flex';
+    return;
+  }
+
+  // Admin-Tab ein-/ausblenden
+  const adminGroup = document.getElementById('sidebar-group-admin');
+  if (adminGroup) adminGroup.style.display = isAdmin ? '' : 'none';
+
+  // Sections ein-/ausblenden
+  document.querySelectorAll('[data-view]').forEach(tab => {
+    const v = tab.dataset.view;
+    if (v === 'admin') return;
+    const allowed = isAdmin || (currentUser.permissions && currentUser.permissions[v] === true);
+    tab.style.display = allowed ? '' : 'none';
+  });
+
+  // Falls aktive View gesperrt ist → Dashboard
+  const activeView = document.querySelector('.view.active');
+  if (activeView) {
+    const vid = activeView.id.replace('view-', '');
+    const allowed = isAdmin || vid === 'dashboard' || (currentUser.permissions && currentUser.permissions[vid] === true);
+    if (!allowed) showView('dashboard');
+  }
+};
+
 function showView(id) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('view-' + id).classList.add('active');
-  // Find the sidebar tab that calls showView(id) and mark it active
-  document.querySelectorAll('.nav-tab').forEach(t => {
-    if (t.getAttribute('onclick') === "showView('" + id + "')") t.classList.add('active');
-  });
+  const viewEl = document.getElementById('view-' + id);
+  if (viewEl) viewEl.classList.add('active');
+  document.querySelectorAll('[data-view="' + id + '"]').forEach(t => t.classList.add('active'));
   renderAll();
 }
 
@@ -2805,6 +2942,98 @@ function renderAll() {
   renderDokumente();
   renderNotizen();
   renderBudget();
+  renderAdmin();
+}
+
+// ── ADMIN ─────────────────────────────────────────────────────
+function renderAdmin() {
+  if (!window._currentUser?.isAdmin) return;
+  const container = document.getElementById('admin-users-list');
+  if (!container) return;
+  const usersData = window._currentUser.usersData || {};
+
+  if (Object.keys(usersData).length === 0) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-family:\'IBM Plex Mono\',monospace;font-size:12px;">Noch keine weiteren Nutzer angelegt.</p>';
+    return;
+  }
+
+  container.innerHTML = Object.entries(usersData).map(([uid, user]) => {
+    const isThisAdmin = user.isAdmin === true;
+    const permChecks = ALL_SECTIONS.map(s => `
+      <label class="perm-toggle">
+        <input type="checkbox" ${user.permissions && user.permissions[s.id] ? 'checked' : ''}
+          onchange="adminTogglePermission('${uid}','${s.id}',this.checked)">
+        <span>${s.icon} ${s.label}</span>
+      </label>`).join('');
+
+    return `<div class="admin-user-card">
+      <div class="admin-user-header">
+        <span class="admin-user-name">${user.name || '—'}</span>
+        <span class="admin-user-email">${user.email || uid}</span>
+        ${isThisAdmin
+          ? '<span class="admin-badge">ADMIN</span>'
+          : `<button class="admin-del-btn" onclick="adminDeleteUser('${uid}')">✕ Entfernen</button>`}
+      </div>
+      ${isThisAdmin ? '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--text-muted);">Vollzugriff – keine Einschränkungen</span>'
+        : `<div class="admin-permissions">${permChecks}</div>`}
+    </div>`;
+  }).join('');
+}
+
+async function adminTogglePermission(uid, section, value) {
+  try {
+    const usersData = window._currentUser.usersData || {};
+    if (!usersData[uid]) return;
+    if (!usersData[uid].permissions) usersData[uid].permissions = {};
+    usersData[uid].permissions[section] = value;
+    await window._saveUserAccess(usersData);
+    window._currentUser.usersData = usersData;
+  } catch(e) { console.error('Permission setzen fehlgeschlagen:', e); }
+}
+
+async function adminCreateUser() {
+  const name  = document.getElementById('admin-new-name').value.trim();
+  const email = document.getElementById('admin-new-email').value.trim();
+  const pw    = document.getElementById('admin-new-pw').value;
+  const msg   = document.getElementById('admin-create-msg');
+  if (!email || !pw) { msg.style.color='var(--rust)'; msg.textContent = 'E-Mail und Passwort erforderlich.'; return; }
+  if (pw.length < 6)  { msg.style.color='var(--rust)'; msg.textContent = 'Passwort muss mind. 6 Zeichen lang sein.'; return; }
+
+  try {
+    const apiKey = window._firebaseApiKey;
+    const resp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pw, returnSecureToken: true })
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+
+    const newUid = data.localId;
+    const usersData = window._currentUser.usersData || {};
+    usersData[newUid] = { name: name || email, email, isAdmin: false, permissions: { dashboard: true } };
+    await window._saveUserAccess(usersData);
+    window._currentUser.usersData = usersData;
+
+    document.getElementById('admin-new-name').value  = '';
+    document.getElementById('admin-new-email').value = '';
+    document.getElementById('admin-new-pw').value    = '';
+    msg.style.color = 'var(--gold)';
+    msg.textContent = '✓ Nutzer angelegt: ' + (name || email);
+    renderAdmin();
+  } catch(e) {
+    msg.style.color = 'var(--rust)';
+    msg.textContent = 'Fehler: ' + e.message;
+  }
+}
+
+async function adminDeleteUser(uid) {
+  if (!confirm('Nutzer entfernen?')) return;
+  const usersData = window._currentUser.usersData || {};
+  delete usersData[uid];
+  await window._saveUserAccess(usersData);
+  window._currentUser.usersData = usersData;
+  renderAdmin();
 }
 
 function updateHeader() {
