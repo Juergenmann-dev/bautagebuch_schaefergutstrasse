@@ -4878,7 +4878,7 @@ function renderWir() {
       const renderCard = p => `
         <div class="wir-person-card">
           ${p.foto
-            ? `<img class="wir-person-foto" src="${p.foto}" alt="${p.name}">`
+            ? `<img class="wir-person-foto" src="${p.foto}" alt="${p.name}" style="cursor:zoom-in;" onclick="openLightboxSrc('${p.foto}','${p.name}')">`
             : `<div class="wir-person-foto-placeholder">${p.id >= 2000 ? '🐾' : '👤'}</div>`}
           <div class="wir-person-body">
             <div class="wir-person-name">${p.name}</div>
