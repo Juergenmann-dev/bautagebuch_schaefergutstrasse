@@ -339,6 +339,11 @@
   .tag-denkmal { background: rgba(181,81,42,0.12); color: #d4724a; border-color: #6a3018; }
   .tag-leader { background: rgba(201,168,76,0.12); color: var(--gold); border-color: var(--gold-dim); }
   .tag-vorsteuer { background: rgba(70,160,140,0.12); color: #5bbfaa; border-color: #2a6058; }
+  .tag-nutzung { background: rgba(138,128,112,0.12); color: var(--stone); border-color: #4a4438; }
+  .tag-storno { background: rgba(100,100,100,0.12); color: #888; border-color: #444; text-decoration: line-through; }
+  .eintrag.storniert { opacity: 0.45; }
+  .eintrag.storniert .eintrag-title { text-decoration: line-through; color: var(--text-muted); }
+  .belegnr-badge { font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--text-muted); margin-left:auto; letter-spacing:0.05em; }
   .auswertung-block { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
   .auswertung-item { background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:8px 14px; font-family:'IBM Plex Mono',monospace; font-size:11px; }
   .auswertung-label { color:var(--text-muted); margin-bottom:2px; }
@@ -2201,9 +2206,14 @@
       <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:14px;">Interne Druckberichte</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;align-items:stretch;">
         <div class="card" style="cursor:pointer;display:flex;flex-direction:column;" onclick="exportTagebuch()">
-          <div class="card-title">📋 Bautagebuch</div>
-          <div style="font-size:12px;color:var(--text-dim);margin-top:6px;line-height:1.6;flex:1;">Alle Einträge als druckbare Übersicht — Datum, Gewerk, Kosten, Notizen.</div>
+          <div class="card-title">📋 Bautagebuch (GoBD)</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:6px;line-height:1.6;flex:1;">Alle Einträge inkl. Beleg-Nr., Nutzungsart, Zahlungskonto und Erfassungszeitstempel.</div>
           <button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="exportTagebuch()">Drucken / PDF</button>
+        </div>
+        <div class="card" style="cursor:pointer;display:flex;flex-direction:column;">
+          <div class="card-title">📊 CSV-Export (Finanzamt)</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-top:6px;line-height:1.6;flex:1;">Maschinenlesbarer Export aller Einträge — kompatibel mit Excel, DATEV und Steuerberater-Software.</div>
+          <button class="btn btn-primary" style="margin-top:14px;width:100%;" onclick="exportCSV()">CSV herunterladen</button>
         </div>
         <div class="card" style="cursor:pointer;display:flex;flex-direction:column;">
           <div class="card-title">💶 Kostenübersicht</div>
@@ -2560,6 +2570,16 @@
           <option value="Privat">Privat</option>
           <option value="Vermieterkonto">Vermieterkonto</option>
           <option value="B&amp;B-Konto">B&amp;B-Konto</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nutzungsart</label>
+        <select class="form-select" id="f-nutzungsart">
+          <option value="">— nicht angegeben —</option>
+          <option value="Dauervermietung">Dauervermietung</option>
+          <option value="B&amp;B">B&amp;B</option>
+          <option value="Eigennutzung">Eigennutzung</option>
+          <option value="Gemischt">Gemischt</option>
         </select>
       </div>
       <div class="form-group form-full">
@@ -3016,6 +3036,7 @@ function openModal() {
   const prev = document.getElementById('f-foto-preview');
   if (prev) prev.innerHTML = '';
   document.getElementById('f-zahlungskonto').value = '';
+  document.getElementById('f-nutzungsart').value = '';
   document.getElementById('f-denkmal').checked = false;
   document.getElementById('f-leader').checked = false;
   document.getElementById('f-vorsteuer').checked = false;
@@ -3081,6 +3102,8 @@ async function saveEintrag() {
 
   const eintrag = {
     id: eintragId,
+    belegnr: nextBelegnummer(),
+    createdAt: new Date().toISOString(),
     datum: document.getElementById('f-datum').value,
     gebaeude: document.getElementById('f-gebaeude').value,
     gewerk: document.getElementById('f-gewerk').value,
@@ -3090,10 +3113,12 @@ async function saveEintrag() {
     fortschritt: parseInt(document.getElementById('f-fortschritt').value),
     fotos: uploadedFotos.map(f => f.src),
     zahlungskonto: document.getElementById('f-zahlungskonto').value || null,
+    nutzungsart: document.getElementById('f-nutzungsart').value || null,
     isDenkmal: document.getElementById('f-denkmal').checked,
     isLeader: document.getElementById('f-leader').checked,
     isVorsteuer: document.getElementById('f-vorsteuer').checked,
     belege: uploadedBelege.map(f => ({ src: f.src, name: f.name })),
+    storniert: false,
   };
 
   state.eintraege.unshift(eintrag);
@@ -3519,21 +3544,24 @@ function renderEintraege() {
   };
 
   list.innerHTML = filtered.map(e => `
-    <div class="eintrag">
+    <div class="eintrag${e.storniert ? ' storniert' : ''}">
       <div class="eintrag-date">
         <span class="eintrag-date-day">${e.datum ? e.datum.split('-')[2] : '—'}</span>
         ${e.datum ? e.datum.substring(0,7) : ''}
       </div>
       <div class="eintrag-body">
-        <div class="eintrag-tags">
+        <div class="eintrag-tags" style="align-items:center;">
           <span class="tag ${e.gebaeude==='G II'?'tag-g2':'tag-g1'}">${e.gebaeude}</span>
           <span class="tag tag-gewerk">${e.gewerk}</span>
           ${e.fortschritt > 0 ? `<span class="tag tag-gewerk">${e.fortschritt}%</span>` : ''}
           ${e.kosten > 0 ? `<span class="tag tag-kosten">${formatEuro(e.kosten)}</span>` : ''}
           ${zahlungTag(e.zahlungskonto)}
+          ${e.nutzungsart ? `<span class="tag tag-nutzung">${e.nutzungsart}</span>` : ''}
           ${e.isDenkmal ? '<span class="tag tag-denkmal">Denkmal</span>' : ''}
           ${e.isLeader ? '<span class="tag tag-leader">LEADER</span>' : ''}
           ${e.isVorsteuer ? '<span class="tag tag-vorsteuer">VSt 19 %</span>' : ''}
+          ${e.storniert ? '<span class="tag tag-storno">STORNIERT</span>' : ''}
+          ${e.belegnr ? `<span class="belegnr-badge">${e.belegnr}</span>` : ''}
         </div>
         <div class="eintrag-title">${e.titel}</div>
         ${e.notizen ? `<div class="eintrag-text">${e.notizen}</div>` : ''}
@@ -3541,10 +3569,31 @@ function renderEintraege() {
         ${e.belege && e.belege.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${e.belege.map(b => `<a href="${b.src}" target="_blank" style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:3px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);text-decoration:none;">🧾 ${b.name}</a>`).join('')}</div>` : ''}
       </div>
       <div>
-        <button onclick="deleteEintrag(${e.id})" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:4px 8px;" title="Löschen">×</button>
+        ${!e.storniert
+          ? `<button onclick="stornierEintrag(${e.id})" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px;padding:4px 8px;font-family:'IBM Plex Mono',monospace;" title="Stornieren (GoBD-konform)">Storno</button>`
+          : `<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted);padding:4px 8px;" title="Storniert am ${e.storniertAm ? new Date(e.storniertAm).toLocaleDateString('de-DE') : ''}">✕</span>`}
       </div>
     </div>
   `).join('');
+}
+
+function nextBelegnummer() {
+  const year = new Date().getFullYear();
+  const nums = state.eintraege
+    .filter(e => e.belegnr && e.belegnr.startsWith(`SGS-${year}-`))
+    .map(e => parseInt(e.belegnr.split('-')[2]) || 0);
+  const next = nums.length ? Math.max(...nums) + 1 : 1;
+  return `SGS-${year}-${String(next).padStart(3, '0')}`;
+}
+
+function stornierEintrag(id) {
+  if (!confirm('Eintrag stornieren?\n\nDer Eintrag bleibt als Storno erhalten (GoBD-konform) und kann nicht wiederhergestellt werden.')) return;
+  const e = state.eintraege.find(e => e.id === id);
+  if (!e) return;
+  e.storniert = true;
+  e.storniertAm = new Date().toISOString();
+  markDirty(); save();
+  renderEintraege();
 }
 
 function deleteEintrag(id) {
@@ -5334,8 +5383,51 @@ function printWindow(title, bodyHtml) {
 
 function exportTagebuch() {
   const rows = state.eintraege.map(e =>
-    `<tr><td>${formatDate(e.datum)}</td><td>${e.gebaeude}</td><td>${e.gewerk}</td><td>${e.titel}</td><td>${e.notizen||'—'}</td><td style="text-align:right;">${e.kosten>0?e.kosten.toLocaleString('de-DE',{style:'currency',currency:'EUR'}):'—'}</td></tr>`).join('');
-  printWindow('Bautagebuch', `<table><thead><tr><th>Datum</th><th>Gebäude</th><th>Gewerk</th><th>Eintrag</th><th>Notizen</th><th>Kosten</th></tr></thead><tbody>${rows}</tbody></table>`);
+    `<tr${e.storniert?' style="opacity:0.4;text-decoration:line-through;"':''}>
+      <td>${e.belegnr||'—'}</td>
+      <td>${formatDate(e.datum)}</td>
+      <td>${e.gebaeude}</td>
+      <td>${e.gewerk}</td>
+      <td>${e.nutzungsart||'—'}</td>
+      <td>${e.titel}${e.storniert?' [STORNIERT]':''}</td>
+      <td>${e.notizen||'—'}</td>
+      <td style="text-align:right;">${e.kosten>0?e.kosten.toLocaleString('de-DE',{style:'currency',currency:'EUR'}):'—'}</td>
+      <td>${e.zahlungskonto||'—'}</td>
+      <td>${[e.isDenkmal?'Denkmal':'',e.isLeader?'LEADER':'',e.isVorsteuer?'VSt':''].filter(Boolean).join(', ')||'—'}</td>
+      <td style="font-size:9px;color:#888;">${e.createdAt?new Date(e.createdAt).toLocaleString('de-DE'):'—'}</td>
+    </tr>`).join('');
+  printWindow('Bautagebuch – GoBD-konform', `
+    <p style="font-size:11px;color:#888;font-family:monospace;">Objekt: Schäfergutstraße 1, 09623 Frauenstein (Nassau) · Exportiert: ${new Date().toLocaleString('de-DE')} · Stornierte Einträge bleiben erhalten (GoBD §146 AO)</p>
+    <table><thead><tr><th>Beleg-Nr.</th><th>Datum</th><th>Gebäude</th><th>Gewerk</th><th>Nutzungsart</th><th>Eintrag</th><th>Notizen</th><th>Kosten</th><th>Zahlungskonto</th><th>Kennzeichnungen</th><th>Erfasst am</th></tr></thead><tbody>${rows}</tbody></table>`);
+}
+
+function exportCSV() {
+  const header = ['Beleg-Nr.','Datum','Erfasst am','Gebäude','Gewerk','Nutzungsart','Titel','Notizen','Kosten (EUR)','Zahlungskonto','Denkmal','LEADER','Vorsteuer','Status'];
+  const escape = v => `"${String(v||'').replace(/"/g,'""')}"`;
+  const rows = state.eintraege.map(e => [
+    e.belegnr||'',
+    e.datum||'',
+    e.createdAt ? new Date(e.createdAt).toLocaleString('de-DE') : '',
+    e.gebaeude||'',
+    e.gewerk||'',
+    e.nutzungsart||'',
+    e.titel||'',
+    e.notizen||'',
+    (e.kosten||0).toFixed(2).replace('.',','),
+    e.zahlungskonto||'',
+    e.isDenkmal?'Ja':'Nein',
+    e.isLeader?'Ja':'Nein',
+    e.isVorsteuer?'Ja':'Nein',
+    e.storniert?'STORNIERT':'aktiv',
+  ].map(escape).join(';'));
+  const csv = '\uFEFF' + [header.map(escape).join(';'), ...rows].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Bautagebuch_SGS_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function exportKosten() {
