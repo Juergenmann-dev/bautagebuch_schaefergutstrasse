@@ -1151,6 +1151,16 @@
   .perm-toggle input:checked + span { color:var(--text); }
   .admin-del-btn { margin-left:auto; background:rgba(181,81,42,0.15); border:1px solid rgba(181,81,42,0.3); color:var(--rust); font-family:'IBM Plex Mono',monospace; font-size:10px; padding:4px 10px; border-radius:3px; cursor:pointer; }
   .admin-del-btn:hover { background:rgba(181,81,42,0.3); }
+  .admin-edit-section { border-top:1px solid var(--border); margin-top:14px; padding-top:14px; display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .admin-edit-group { display:flex; flex-direction:column; gap:6px; }
+  .admin-edit-label { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text-muted); letter-spacing:0.06em; text-transform:uppercase; }
+  .admin-edit-row { display:flex; gap:6px; align-items:center; }
+  .admin-edit-input { flex:1; background:var(--surface); border:1px solid var(--border); border-radius:3px; color:var(--text); font-family:'IBM Plex Mono',monospace; font-size:12px; padding:5px 10px; }
+  .admin-edit-btn { background:rgba(201,168,76,0.12); border:1px solid var(--gold-dim); color:var(--gold); font-family:'IBM Plex Mono',monospace; font-size:10px; padding:5px 10px; border-radius:3px; cursor:pointer; white-space:nowrap; }
+  .admin-edit-btn:hover { background:rgba(201,168,76,0.22); }
+  .admin-edit-msg { font-family:'IBM Plex Mono',monospace; font-size:10px; min-height:14px; }
+  .admin-admin-toggle { display:flex; align-items:center; gap:10px; }
+  .admin-admin-toggle input[type=checkbox] { width:16px; height:16px; cursor:pointer; accent-color:var(--gold); }
   /* ── ZEITPLAN ── */
   .zp-timeline { position: relative; padding-left: 32px; }
   .zp-timeline::before {
@@ -1374,7 +1384,8 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
   import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence,
-           signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword }
+           signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword,
+           sendPasswordResetEmail }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
   import { getFirestore, doc, setDoc, getDoc, onSnapshot }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
@@ -1394,6 +1405,10 @@
   const secondaryApp  = initializeApp(firebaseConfig, 'secondary');
   const secondaryAuth = getAuth(secondaryApp);
   await setPersistence(secondaryAuth, inMemoryPersistence);
+
+  window._sendPasswordReset = async (email) => {
+    await sendPasswordResetEmail(auth, email);
+  };
 
   window._createAuthUser = async (email, password) => {
     const cred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
@@ -1470,17 +1485,22 @@
           window._loadState()
         ]);
 
+        // Firestore-gespeicherten Admin-Status ebenfalls prüfen (für weitere Admins)
+        const isAdminFS = usersData[user.uid]?.isAdmin === true;
+        if (isAdminFS) window._currentUser.isAdmin = true;
+        const isAdminFinal = window._currentUser.isAdmin;
+
         // Admin-Eintrag beim ersten Login anlegen
-        if (isAdmin && !usersData[user.uid]) {
+        if (isAdminFinal && !usersData[user.uid]) {
           usersData[user.uid] = { name: 'Admin', email: user.email, isAdmin: true, permissions: null };
           await window._saveUserAccess(usersData);
         }
         window._currentUser.usersData = usersData;
         const myData = usersData[user.uid];
-        if (!isAdmin && myData) {
+        if (!isAdminFinal && myData) {
           window._currentUser.permissions = myData.permissions || {};
           window._currentUser.name = myData.name;
-        } else if (!isAdmin && !myData) {
+        } else if (!isAdminFinal && !myData) {
           window._currentUser.noAccess = true;
         }
 
@@ -3065,6 +3085,33 @@ function renderAdmin() {
         <span>${s.icon} ${s.label}</span>
       </label>`).join('');
 
+    const editSection = !isMe ? `
+      <div class="admin-edit-section">
+        <div class="admin-edit-group">
+          <div class="admin-edit-label">E-Mail ändern</div>
+          <div class="admin-edit-row">
+            <input class="admin-edit-input" id="email-input-${uid}" type="email" value="${user.email || ''}" placeholder="neue@email.de">
+            <button class="admin-edit-btn" onclick="adminUpdateEmail('${uid}')">Speichern</button>
+          </div>
+          <div class="admin-edit-msg" id="email-msg-${uid}"></div>
+        </div>
+        <div class="admin-edit-group">
+          <div class="admin-edit-label">Passwort zurücksetzen</div>
+          <div class="admin-edit-row">
+            <button class="admin-edit-btn" style="width:100%;" onclick="adminSendPasswordReset('${uid}')">Reset-E-Mail senden</button>
+          </div>
+          <div class="admin-edit-msg" id="pw-msg-${uid}"></div>
+        </div>
+        <div class="admin-edit-group" style="grid-column:1/-1;">
+          <div class="admin-edit-label">Adminrechte</div>
+          <label class="admin-admin-toggle">
+            <input type="checkbox" ${isThisAdmin ? 'checked' : ''} onchange="adminToggleAdmin('${uid}',this.checked)">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);">Vollzugriff (Admin)</span>
+          </label>
+          <div class="admin-edit-msg" id="admin-msg-${uid}"></div>
+        </div>
+      </div>` : '';
+
     return `<div class="admin-user-card">
       <div class="admin-user-header">
         <span class="admin-user-name">${user.name || '—'}</span>
@@ -3075,6 +3122,7 @@ function renderAdmin() {
       ${isThisAdmin
         ? '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:var(--text-muted);">Vollzugriff – keine Einschränkungen</span>'
         : `<div class="admin-permissions">${permChecks}</div>`}
+      ${editSection}
     </div>`;
   }).join('');
 }
@@ -3145,6 +3193,62 @@ async function adminDeleteUser(uid) {
   await window._saveUserAccess(usersData);
   window._currentUser.usersData = usersData;
   renderAdmin();
+}
+
+async function adminUpdateEmail(uid) {
+  const input = document.getElementById('email-input-' + uid);
+  const msg   = document.getElementById('email-msg-' + uid);
+  const newEmail = input?.value.trim();
+  if (!newEmail) { msg.style.color='var(--rust)'; msg.textContent='Bitte E-Mail eingeben.'; return; }
+  try {
+    const usersData = window._currentUser.usersData || {};
+    if (!usersData[uid]) return;
+    usersData[uid].email = newEmail;
+    await window._saveUserAccess(usersData);
+    window._currentUser.usersData = usersData;
+    msg.style.color = 'var(--gold)';
+    msg.textContent = '✓ Gespeichert';
+    setTimeout(() => { if (msg) msg.textContent = ''; }, 3000);
+    renderAdmin();
+  } catch(e) {
+    msg.style.color = 'var(--rust)';
+    msg.textContent = 'Fehler: ' + e.message;
+  }
+}
+
+async function adminSendPasswordReset(uid) {
+  const msg = document.getElementById('pw-msg-' + uid);
+  const usersData = window._currentUser.usersData || {};
+  const email = usersData[uid]?.email;
+  if (!email) { msg.style.color='var(--rust)'; msg.textContent='Keine E-Mail hinterlegt.'; return; }
+  try {
+    await window._sendPasswordReset(email);
+    msg.style.color = 'var(--gold)';
+    msg.textContent = '✓ Reset-E-Mail gesendet an ' + email;
+    setTimeout(() => { if (msg) msg.textContent = ''; }, 5000);
+  } catch(e) {
+    msg.style.color = 'var(--rust)';
+    msg.textContent = 'Fehler: ' + e.message;
+  }
+}
+
+async function adminToggleAdmin(uid, value) {
+  const msg = document.getElementById('admin-msg-' + uid);
+  try {
+    const usersData = window._currentUser.usersData || {};
+    if (!usersData[uid]) return;
+    usersData[uid].isAdmin = value;
+    if (value) usersData[uid].permissions = null;
+    await window._saveUserAccess(usersData);
+    window._currentUser.usersData = usersData;
+    msg.style.color = 'var(--gold)';
+    msg.textContent = value ? '✓ Adminrechte vergeben' : '✓ Adminrechte entzogen';
+    setTimeout(() => { if (msg) msg.textContent = ''; }, 3000);
+    renderAdmin();
+  } catch(e) {
+    msg.style.color = 'var(--rust)';
+    msg.textContent = 'Fehler: ' + e.message;
+  }
 }
 
 function updateHeader() {
