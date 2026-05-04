@@ -437,7 +437,67 @@
   .foto-upload-icon { font-size: 32px; margin-bottom: 10px; }
   .foto-upload-text { color: var(--text-muted); font-size: 13px; }
   .foto-upload-text strong { color: var(--gold); }
-  #foto-input { display: none; }
+  /* Nicht display:none — iOS/Safari; offscreen fixed + Label „for“ statt .click() */
+  .sr-file-input {
+    position: fixed;
+    left: -9999px;
+    top: 0;
+    width: 2px;
+    height: 2px;
+    opacity: 0.01;
+    overflow: hidden;
+  }
+  .foto-upload-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 14px;
+  }
+  .foto-upload-toolbar .btn { font-size: 11px; padding: 8px 14px; }
+  .foto-upload-zone {
+    border: 2px dashed var(--border-light);
+    border-radius: var(--radius);
+    padding: 28px 24px 22px;
+    text-align: center;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .foto-upload-zone.dragover {
+    border-color: var(--gold);
+    background: rgba(201, 168, 76, 0.08);
+  }
+  .foto-album-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .foto-album-tab {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .foto-album-tab:hover { border-color: var(--gold-dim); color: var(--text); }
+  .foto-album-tab.active {
+    border-color: var(--gold);
+    color: var(--gold);
+    background: rgba(201, 168, 76, 0.1);
+  }
+  .foto-album-tab.manage {
+    border-style: dashed;
+    opacity: 0.85;
+  }
   .foto-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
   .foto-card {
     background: var(--surface2);
@@ -1811,13 +1871,30 @@
 
   <!-- ═══ FOTOS ═══ -->
   <div class="view" id="view-fotos">
-    <div class="foto-upload-area" onclick="document.getElementById('foto-input').click()">
-      <div class="foto-upload-icon">📷</div>
-      <div class="foto-upload-text"><strong>Fotos hinzufügen</strong><br>Klick zum Auswählen · JPG, PNG, HEIC</div>
+    <div class="foto-upload-zone foto-upload-area" id="foto-drop-zone"
+      ondragover="event.preventDefault(); this.classList.add('dragover');"
+      ondragleave="event.preventDefault(); this.classList.remove('dragover');"
+      ondrop="event.preventDefault(); this.classList.remove('dragover'); handleFotoDrop(event);">
+      <label for="foto-input" style="cursor:pointer;display:block;margin:0;">
+        <div class="foto-upload-icon">📷</div>
+        <div class="foto-upload-text">
+          <strong>Fotos hinzufügen</strong><br>
+          Tippen zum Auswählen · mehrere Dateien oder Ordner unten · JPG, PNG, HEIC …<br>
+          <span style="font-size:11px;opacity:0.9;">iPhone: „Dateien wählen“ → Fotos → oben „Auswählen“, mehrere Bilder antippen, „Fertig“. Ordner nur am Rechner.</span>
+        </div>
+      </label>
+      <div class="foto-upload-toolbar foto-upload-actions">
+        <label for="foto-input" class="btn btn-primary" style="margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Dateien wählen</label>
+        <label for="foto-input-folder" class="btn btn-secondary" style="margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Ordner wählen</label>
+      </div>
     </div>
-    <input type="file" id="foto-input" multiple accept="image/*" onchange="handleFotos(event)">
+    <input type="file" id="foto-input" class="sr-file-input" multiple onchange="handleFotosPick(event, false)" title="Mehrere Bilder auswählen" aria-label="Mehrere Bilder auswählen">
+    <input type="file" id="foto-input-folder" class="sr-file-input" multiple webkitdirectory directory onchange="handleFotosPick(event, false)" title="Ordner mit Bildern" aria-label="Ordner mit Bildern">
+    <input type="file" id="foto-input-more" class="sr-file-input" multiple onchange="handleFotosPick(event, true)" title="Weitere Bilder" aria-label="Weitere Bilder">
+    <input type="file" id="foto-input-folder-more" class="sr-file-input" multiple webkitdirectory directory onchange="handleFotosPick(event, true)" title="Weiterer Ordner" aria-label="Weiterer Ordner">
     
-    <div style="display:flex;gap:10px;margin-bottom:16px;">
+    <div id="foto-album-tabs-host" class="foto-album-tabs"></div>
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
       <select class="filter-select" id="foto-filter-gebaeude" onchange="renderFotos()">
         <option value="">Alle Gebäude</option>
         <option value="G I">Gebäude I</option>
@@ -1944,7 +2021,7 @@
           <option value="aktuell">Aktuell</option>
           <option value="nachher">Nachher / Visualisierung</option>
         </select>
-        <button class="btn btn-primary" onclick="openZustandModal()">+ Foto hinzufügen</button>
+        <button class="btn btn-primary" onclick="openZustandModal()">+ Fotos hinzufügen</button>
         <button class="btn" onclick="printRaumCollage()" title="Druckfertige Collage pro Raum erstellen" style="background:rgba(181,81,42,0.12);border-color:var(--rust);color:var(--rust);">🖨 Collage drucken</button>
       </div>
     </div>
@@ -2487,7 +2564,7 @@
 <!-- ═══ MODAL ZUSTAND ═══ -->
 <div class="modal-overlay" id="modal-zustand">
   <div class="modal">
-    <div class="modal-title">Foto hinzufügen</div>
+    <div class="modal-title">Fotos hinzufügen</div>
     <div class="form-grid">
       <div class="form-group">
         <label class="form-label">Gebäude</label>
@@ -2513,9 +2590,26 @@
         <label class="form-label">Datum</label>
         <input type="date" class="form-input" id="zf-datum">
       </div>
-      <div class="form-group">
-        <label class="form-label">Foto wählen</label>
-        <input type="file" id="zf-file" accept="image/*" class="form-input" style="padding:6px;">
+      <div class="form-group form-full">
+        <label class="form-label">Fotos wählen (mehrere oder Ordner)</label>
+        <div style="border:1px dashed var(--border);border-radius:var(--radius);padding:12px;">
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;line-height:1.4;">Alle gewählten Bilder erhalten dieselben Angaben (Gebäude, Typ, Bereich, Datum). Am Rechner: Ordner wählen. iPhone: „Dateien“, in der Fotos-App mehrere Bilder markieren.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+            <label for="zf-input-files" class="btn btn-primary" style="font-size:11px;padding:6px 12px;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Dateien</label>
+            <label for="zf-input-folder" class="btn btn-secondary" style="font-size:11px;padding:6px 12px;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Ordner</label>
+            <label for="zf-input-files-more" class="btn btn-secondary" style="font-size:11px;padding:6px 12px;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Weitere Dateien</label>
+            <label for="zf-input-folder-more" class="btn btn-secondary" style="font-size:11px;padding:6px 12px;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Weit. Ordner</label>
+          </div>
+          <div id="zf-drop" style="margin-top:10px;border:1px dashed var(--border-light);border-radius:var(--radius);padding:10px;text-align:center;font-size:11px;color:var(--text-dim);"
+            ondragover="event.preventDefault();this.style.background='rgba(201,168,76,0.08)';"
+            ondragleave="event.preventDefault();this.style.background='';"
+            ondrop="event.preventDefault();this.style.background='';handleZustandFotoDrop(event);">Oder hier ablegen</div>
+          <input type="file" id="zf-input-files" class="sr-file-input" multiple onchange="handleZustandFilesPick(event)" aria-label="Bilddateien wählen">
+          <input type="file" id="zf-input-folder" class="sr-file-input" multiple webkitdirectory directory onchange="handleZustandFilesPick(event)" aria-label="Ordner wählen">
+          <input type="file" id="zf-input-files-more" class="sr-file-input" multiple onchange="handleZustandFilesPick(event)" aria-label="Weitere Bilddateien">
+          <input type="file" id="zf-input-folder-more" class="sr-file-input" multiple webkitdirectory directory onchange="handleZustandFilesPick(event)" aria-label="Weiteren Ordner wählen">
+        </div>
+        <div id="zf-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -2592,10 +2686,23 @@
       </div>
       <div class="form-group form-full">
         <label class="form-label">Fotos zum Eintrag (optional)</label>
-        <div onclick="document.getElementById('f-foto-input').click()" style="border:1px dashed var(--border);border-radius:var(--radius);padding:10px 14px;cursor:pointer;font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:8px;">
-          📷 <span>Fotos auswählen</span>
+        <div style="border:1px dashed var(--border);border-radius:var(--radius);padding:12px 14px;font-size:12px;color:var(--text-muted);">
+          <div style="margin-bottom:8px;">Mehrere Bilder oder einen Ordner — per Klick oder hierher ziehen.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;" onclick="event.stopPropagation();">
+            <label for="f-foto-input" class="btn btn-primary" style="font-size:11px;padding:6px 12px;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Dateien</label>
+            <label for="f-foto-input-folder" class="btn btn-secondary" style="font-size:11px;padding:6px 12px;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Ordner</label>
+            <label for="f-foto-input-more" class="btn btn-secondary" style="font-size:11px;padding:6px 12px;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Weitere Dateien</label>
+            <label for="f-foto-input-folder-more" class="btn btn-secondary" style="font-size:11px;padding:6px 12px;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Weit. Ordner</label>
+          </div>
         </div>
-        <input type="file" id="f-foto-input" multiple accept="image/*" style="display:none" onchange="handleEintragFotos(event)">
+        <input type="file" id="f-foto-input" class="sr-file-input" multiple onchange="handleEintragFotosPick(event)" aria-label="Tagebuch-Fotos">
+        <input type="file" id="f-foto-input-folder" class="sr-file-input" multiple webkitdirectory directory onchange="handleEintragFotosPick(event)" aria-label="Tagebuch-Foto-Ordner">
+        <input type="file" id="f-foto-input-more" class="sr-file-input" multiple onchange="handleEintragFotosPick(event)" aria-label="Weitere Tagebuch-Fotos">
+        <input type="file" id="f-foto-input-folder-more" class="sr-file-input" multiple webkitdirectory directory onchange="handleEintragFotosPick(event)" aria-label="Weiterer Tagebuch-Foto-Ordner">
+        <div id="f-foto-drop" style="margin-top:8px;border:1px dashed var(--border-light);border-radius:var(--radius);padding:10px;text-align:center;font-size:11px;color:var(--text-dim);"
+          ondragover="event.preventDefault();this.style.background='rgba(201,168,76,0.08)';"
+          ondragleave="event.preventDefault();this.style.background='';"
+          ondrop="event.preventDefault();this.style.background='';handleEintragFotoDrop(event);">Oder hier ablegen</div>
         <div id="f-foto-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
       </div>
       <div class="form-group form-full">
@@ -2619,6 +2726,7 @@
 let state = {
   eintraege: [],
   fotos: [],
+  fotoAlben: ['Haus 1', 'Haus 2', 'Innen', 'Außen', 'Sonstiges'],
   zustandFotos: [],
   behoerden: [],
   raumAufgaben: {},
@@ -2679,9 +2787,86 @@ if (!state.dokumente) state.dokumente = [];
 if (!state.notizen) state.notizen = [];
 if (!state.budgetPosten) state.budgetPosten = [];
 if (!state.meilensteine) state.meilensteine = [];
+function ensureFotoOrdnerState() {
+  if (!state.fotoAlben || !Array.isArray(state.fotoAlben) || state.fotoAlben.length === 0) {
+    state.fotoAlben = ['Haus 1', 'Haus 2', 'Innen', 'Außen', 'Sonstiges'];
+  }
+  const alben = state.fotoAlben;
+  (state.fotos || []).forEach(f => {
+    if (!f || typeof f !== 'object') return;
+    if (!f.ordner || typeof f.ordner !== 'string') {
+      if (f.bereich === 'Außen') f.ordner = 'Außen';
+      else if (f.gebaeude === 'G I') f.ordner = 'Haus 1';
+      else if (f.gebaeude === 'G II') f.ordner = 'Haus 2';
+      else f.ordner = 'Sonstiges';
+    }
+    if (!alben.includes(f.ordner)) alben.push(f.ordner);
+  });
+}
+ensureFotoOrdnerState();
 
 // Firestore-State einspielen (wird vom module-Script nach Login aufgerufen)
+// Hilfsfunktion: Arrays nach ID zusammenführen (lokale Version gewinnt bei gleicher ID)
+function _mergeArrayById(localArr, fsArr) {
+  const merged = {};
+  (fsArr || []).forEach(item => { if (item && item.id != null) merged[item.id] = item; });
+  (localArr || []).forEach(item => { if (item && item.id != null) merged[item.id] = item; });
+  return Object.values(merged).sort((a, b) => (b.id || 0) - (a.id || 0));
+}
+
 window._applyFirestoreState = function(fsState) {
+  const localTime = state._savedAt || 0;
+  const fsTime    = fsState._savedAt || 0;
+
+  if (localTime > fsTime) {
+    // Lokaler Stand ist neuer (Offline-Änderungen) → Firestore aktualisieren, lokal behalten
+    console.info('Offline-Sync: Lokaler Stand (' + new Date(localTime).toLocaleString() + ') ist neuer als Firestore (' + (fsTime ? new Date(fsTime).toLocaleString() : 'kein Timestamp') + ') – synchronisiere hoch.');
+    try { localStorage.setItem('bautagebuch_schaefergut', JSON.stringify(state)); } catch(e) {}
+    if (typeof window._saveState === 'function') {
+      window._saveState(JSON.parse(JSON.stringify(state)))
+        .then(() => console.info('Offline-Sync: Lokale Daten erfolgreich zu Firestore hochgeladen.'))
+        .catch(e => console.error('Offline-Sync Upload fehlgeschlagen:', e));
+    }
+    if (typeof renderAll === 'function') renderAll();
+    return;
+  }
+
+  if (localTime === 0 && fsTime === 0) {
+    // Erster Sync nach Update (noch kein Timestamp auf beiden Seiten):
+    // Arrays intelligent zusammenführen statt blind überschreiben
+    console.info('Offline-Sync: Erster Sync ohne Timestamps – führe Daten zusammen.');
+    const ARRAY_KEYS = ['eintraege', 'fotos', 'zustandFotos', 'notizen', 'meilensteine', 'kontakte', 'dokumente', 'budgetPosten', 'behoerden', 'helfer', 'team'];
+    const merged = Object.assign({}, fsState);
+    ARRAY_KEYS.forEach(key => {
+      merged[key] = _mergeArrayById(state[key], fsState[key]);
+    });
+    const localEintraege  = (state.eintraege  || []).length;
+    const fsEintraege     = (fsState.eintraege || []).length;
+    const mergedEintraege = merged.eintraege.length;
+    console.info('Offline-Sync Merge: Lokal ' + localEintraege + ' Einträge, Firestore ' + fsEintraege + ' Einträge → zusammengeführt: ' + mergedEintraege + ' Einträge.');
+    Object.assign(state, merged);
+    // Direkt zurück zu Firestore hochladen damit der Merge gesichert ist
+    state._savedAt = Date.now();
+    try { localStorage.setItem('bautagebuch_schaefergut', JSON.stringify(state)); } catch(e) {}
+    if (typeof window._saveState === 'function') {
+      window._saveState(JSON.parse(JSON.stringify(state)))
+        .then(() => console.info('Offline-Sync: Zusammengeführte Daten zu Firestore hochgeladen.'))
+        .catch(e => console.error('Offline-Sync Merge-Upload fehlgeschlagen:', e));
+    }
+    if (!state.behoerden) state.behoerden = [];
+    if (!state.raumAufgaben) state.raumAufgaben = {};
+    if (!state.raumNamen) state.raumNamen = {};
+    if (!state.kontakte) state.kontakte = [];
+    if (!state.dokumente) state.dokumente = [];
+    if (!state.notizen) state.notizen = [];
+    if (!state.budgetPosten) state.budgetPosten = [];
+    if (!state.meilensteine) state.meilensteine = [];
+    if (typeof ensureFotoOrdnerState === 'function') ensureFotoOrdnerState();
+    if (typeof renderAll === 'function') renderAll();
+    return;
+  }
+
+  // Firestore ist neuer → Firestore-Stand übernehmen
   Object.assign(state, fsState);
   if (!state.behoerden) state.behoerden = [];
   if (!state.raumAufgaben) state.raumAufgaben = {};
@@ -2692,6 +2877,7 @@ window._applyFirestoreState = function(fsState) {
   if (!state.notizen) state.notizen = [];
   if (!state.budgetPosten) state.budgetPosten = [];
   if (!state.meilensteine) state.meilensteine = [];
+  if (typeof ensureFotoOrdnerState === 'function') ensureFotoOrdnerState();
   try { localStorage.setItem('bautagebuch_schaefergut', JSON.stringify(state)); } catch(e) {}
   if (typeof renderAll === 'function') renderAll();
 };
@@ -2866,6 +3052,8 @@ window.addEventListener('beforeunload', function(e) {
 });
 
 function save() {
+  // Timestamp setzen – wird für Offline-Sync-Konfliktauflösung genutzt
+  state._savedAt = Date.now();
   // 1. localStorage als schneller Cache
   try { localStorage.setItem('bautagebuch_schaefergut', JSON.stringify(state)); } catch(e) {}
   // 2. Eingebetteten State im HTML aktualisieren (für Download)
@@ -2972,6 +3160,73 @@ let _eintragFotoFiles = new Map();
 let _eintragBelege = [];
 let _eintragBelegFiles = new Map();
 
+function isImageFile(file) {
+  if (!file) return false;
+  const t = file.type || '';
+  if (t.startsWith('image/')) return true;
+  const n = (file.name || '').toLowerCase();
+  return /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i.test(n);
+}
+
+function _guessOrdnerFromRelativePath(relPath) {
+  if (!relPath || typeof relPath !== 'string') return '';
+  const seg = relPath.split('/')[0];
+  const alben = state.fotoAlben || [];
+  return alben.includes(seg) ? seg : '';
+}
+
+function ingestEintragFiles(files, append) {
+  if (!append) {
+    _eintragFotos = [];
+    _eintragFotoFiles.clear();
+  }
+  const raw = files || [];
+  const list = raw.filter(isImageFile);
+  if (!list.length) {
+    if (raw.length) alert('Keine Bilddateien erkannt (JPG, PNG, HEIC …).');
+    return;
+  }
+  let done = 0;
+  const bump = () => {
+    done++;
+    if (done === list.length) _renderEintragFotoPreview();
+  };
+  list.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const id = Date.now() + Math.random();
+      _eintragFotos.push({
+        id,
+        src: e.target.result,
+        name: file.name,
+        suggestedOrdner: _guessOrdnerFromRelativePath(file.webkitRelativePath || '')
+      });
+      _eintragFotoFiles.set(id, file);
+      bump();
+    };
+    reader.onerror = () => bump();
+    try {
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('FileReader:', err);
+      bump();
+    }
+  });
+}
+
+function handleEintragFotosPick(event) {
+  const input = event.target;
+  const files = Array.from(input.files || []);
+  const append = input.id === 'f-foto-input-more' || input.id === 'f-foto-input-folder-more';
+  if (input) input.value = '';
+  ingestEintragFiles(files, append);
+}
+
+function handleEintragFotoDrop(event) {
+  const files = Array.from(event.dataTransfer.files || []);
+  ingestEintragFiles(files, _eintragFotos.length > 0);
+}
+
 function _renderEintragBelegPreview() {
   const prev = document.getElementById('f-beleg-preview');
   if (!prev) return;
@@ -3007,21 +3262,6 @@ function _renderEintragFotoPreview() {
     </div>`).join('');
 }
 
-function handleEintragFotos(event) {
-  const files = Array.from(event.target.files);
-  files.forEach(file => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const id = Date.now() + Math.random();
-      _eintragFotos.push({ id, src: e.target.result, name: file.name });
-      _eintragFotoFiles.set(id, file);
-      _renderEintragFotoPreview();
-    };
-    reader.readAsDataURL(file);
-  });
-  event.target.value = '';
-}
-
 function openModal() {
   _eintragFotos = [];
   _eintragFotoFiles.clear();
@@ -3035,6 +3275,10 @@ function openModal() {
   document.getElementById('f-notizen').value = '';
   const prev = document.getElementById('f-foto-preview');
   if (prev) prev.innerHTML = '';
+  ['f-foto-input', 'f-foto-input-folder', 'f-foto-input-more', 'f-foto-input-folder-more'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
   document.getElementById('f-zahlungskonto').value = '';
   document.getElementById('f-nutzungsart').value = '';
   document.getElementById('f-denkmal').checked = false;
@@ -3072,13 +3316,13 @@ async function saveEintrag() {
         const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const path = `eintraege/${eintragId}/${safeName}`;
         const { url, storagePath } = await window._uploadFoto(file, path);
-        uploadedFotos.push({ src: url, storagePath, name: file.name });
+        uploadedFotos.push({ src: url, storagePath, name: file.name, suggestedOrdner: f.suggestedOrdner });
       } catch(e) {
         console.error('Storage-Upload fehlgeschlagen, nutze base64:', e);
-        uploadedFotos.push({ src: f.src, name: f.name });
+        uploadedFotos.push({ src: f.src, name: f.name, suggestedOrdner: f.suggestedOrdner });
       }
     } else {
-      uploadedFotos.push({ src: f.src, name: f.name });
+      uploadedFotos.push({ src: f.src, name: f.name, suggestedOrdner: f.suggestedOrdner });
     }
   }
 
@@ -3124,7 +3368,10 @@ async function saveEintrag() {
   state.eintraege.unshift(eintrag);
 
   // Fotos auch in den Fotos-Tab übernehmen
+  const geb = eintrag.gebaeude;
+  const fallbackOrd = geb === 'G II' ? 'Haus 2' : geb === 'G I' ? 'Haus 1' : ((state.fotoAlben || []).includes('Sonstiges') ? 'Sonstiges' : (state.fotoAlben || [])[0] || 'Sonstiges');
   uploadedFotos.forEach(f => {
+    const ord = (f.suggestedOrdner && (state.fotoAlben || []).includes(f.suggestedOrdner)) ? f.suggestedOrdner : fallbackOrd;
     state.fotos.unshift({
       id: Date.now() + Math.random(),
       src: f.src,
@@ -3133,6 +3380,7 @@ async function saveEintrag() {
       datum: eintrag.datum,
       gebaeude: eintrag.gebaeude === 'Beide' ? 'G I' : eintrag.gebaeude,
       bereich: 'Sonstiges',
+      ordner: ord,
       eintragId: eintrag.id,
     });
   });
@@ -3875,58 +4123,143 @@ function renderKosten() {
 
 // ── FOTOS ─────────────────────────────────────────────────────
 let _pendingFotos = [];
-let _pendingFotoFiles = new Map(); // id → File (für Storage-Upload)
+let _pendingFotoFiles = new Map();
+let _fotoOrdnerTab = '';
 
-function handleFotos(event) {
-  const files = Array.from(event.target.files);
-  if (!files.length) return;
-  _pendingFotos = [];
-  _pendingFotoFiles.clear();
-  let loaded = 0;
-  files.forEach(file => {
+function setFotoOrdnerFilter(name) {
+  _fotoOrdnerTab = name;
+  renderFotos();
+}
+
+function fillFotoOrdnerSelect(selectId, preferred) {
+  const el = document.getElementById(selectId);
+  if (!el) return;
+  const alben = state.fotoAlben || [];
+  el.innerHTML = '';
+  alben.forEach(name => {
+    const o = document.createElement('option');
+    o.value = name;
+    o.textContent = name;
+    el.appendChild(o);
+  });
+  const pick = preferred && alben.includes(preferred) ? preferred : (alben[0] || '');
+  if (pick) el.value = pick;
+}
+
+function _escAttr(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function renderFotoAlbumTabs() {
+  const host = document.getElementById('foto-album-tabs-host');
+  if (!host) return;
+  ensureFotoOrdnerState();
+  const alben = state.fotoAlben || [];
+  let html = `<button type="button" class="foto-album-tab ${_fotoOrdnerTab === '' ? 'active' : ''}" onclick="setFotoOrdnerFilter('')">Alle</button>`;
+  alben.forEach(name => {
+    const active = _fotoOrdnerTab === name ? 'active' : '';
+    const q = JSON.stringify(name);
+    html += `<button type="button" class="foto-album-tab ${active}" onclick='setFotoOrdnerFilter(${q})'>${_escAttr(name)}</button>`;
+  });
+  html += `<button type="button" class="foto-album-tab manage" onclick="openFotoAlbenModal()">Ordner bearbeiten</button>`;
+  host.innerHTML = html;
+}
+
+function ingestMainFotoFiles(files, append) {
+  const raw = files || [];
+  const list = raw.filter(isImageFile);
+  if (!list.length) {
+    if (raw.length) alert('Keine Bilddateien erkannt (JPG, PNG, HEIC …).');
+    return;
+  }
+  if (!append) {
+    _pendingFotos = [];
+    _pendingFotoFiles.clear();
+  }
+  let done = 0;
+  const bump = () => {
+    done++;
+    if (done === list.length) openFotoUploadModal();
+  };
+  list.forEach(file => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const id = Date.now() + Math.random();
       _pendingFotos.push({
         id,
-        src: e.target.result, // nur Vorschau, wird durch Storage-URL ersetzt
+        src: e.target.result,
         name: file.name,
         datum: new Date().toISOString().split('T')[0],
         gebaeude: 'G I',
-        bereich: 'Sonstiges'
+        bereich: 'Sonstiges',
+        suggestedOrdner: _guessOrdnerFromRelativePath(file.webkitRelativePath || '')
       });
       _pendingFotoFiles.set(id, file);
-      loaded++;
-      if (loaded === files.length) openFotoUploadModal();
+      bump();
     };
-    reader.readAsDataURL(file);
+    reader.onerror = () => bump();
+    try {
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('FileReader:', err);
+      bump();
+    }
   });
-  event.target.value = '';
+}
+
+function handleFotosPick(event, appendForced) {
+  const input = event.target;
+  const files = Array.from(input.files || []);
+  const fromMore = !!(input && (input.id === 'foto-input-more' || input.id === 'foto-input-folder-more'));
+  const useAppend = appendForced === true || fromMore;
+  if (input) input.value = '';
+  ingestMainFotoFiles(files, useAppend);
+}
+
+function handleFotoDrop(event) {
+  const files = Array.from(event.dataTransfer.files || []);
+  const dz = document.getElementById('foto-drop-zone');
+  if (dz) dz.classList.remove('dragover');
+  ingestMainFotoFiles(files, _pendingFotos.length > 0);
 }
 
 function openFotoUploadModal() {
-  // Show thumbnails
+  fillFotoOrdnerSelect('foto-upload-ordner', _fotoOrdnerTab || (state.fotoAlben || [])[0]);
+  const autoEl = document.getElementById('foto-upload-auto-ordner');
+  if (autoEl) autoEl.checked = false;
   const preview = document.getElementById('foto-upload-preview');
-  preview.innerHTML = _pendingFotos.map(f =>
-    `<img src="${f.src}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;border:1px solid var(--border);">`
+  const n = _pendingFotos.length;
+  const hint = n
+    ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);margin-bottom:8px;">${n} Bild${n !== 1 ? 'er' : ''} — unten Ordner und Gebäude zuweisen, dann hochladen.</div>`
+    : '';
+  preview.innerHTML = hint + _pendingFotos.map(f =>
+    `<img src="${f.src}" title="${_escAttr(f.name)}" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:4px;border:1px solid var(--border);">`
   ).join('');
   document.getElementById('foto-upload-modal').style.display = 'flex';
 }
 
 function cancelFotoUpload() {
   _pendingFotos = [];
+  _pendingFotoFiles.clear();
   document.getElementById('foto-upload-modal').style.display = 'none';
 }
 
 async function confirmFotoUpload() {
   const geb = document.getElementById('foto-upload-gebaeude').value;
   const ber = document.getElementById('foto-upload-bereich').value;
+  const bulkOrdner = document.getElementById('foto-upload-ordner')?.value || (state.fotoAlben || [])[0];
+  const autoOrd = document.getElementById('foto-upload-auto-ordner')?.checked;
+  const alben = state.fotoAlben || [];
   const confirmBtn = document.querySelector('#foto-upload-modal .btn-primary');
   if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Lade hoch…'; }
 
   for (const f of _pendingFotos) {
     f.gebaeude = geb;
-    f.bereich  = ber;
+    f.bereich = ber;
+    let ord = bulkOrdner;
+    if (autoOrd && f.suggestedOrdner && alben.includes(f.suggestedOrdner)) ord = f.suggestedOrdner;
+    if (!alben.includes(ord)) ord = alben[0] || 'Sonstiges';
+    f.ordner = ord;
     const file = _pendingFotoFiles.get(f.id);
     if (file && typeof window._uploadFoto === 'function') {
       try {
@@ -3935,7 +4268,7 @@ async function confirmFotoUpload() {
         const { url, storagePath } = await window._uploadFoto(file, path);
         f.src = url;
         f.storagePath = storagePath;
-      } catch(e) {
+      } catch (e) {
         console.error('Storage-Upload fehlgeschlagen, nutze base64:', e);
       }
     }
@@ -3951,14 +4284,20 @@ async function confirmFotoUpload() {
   if (fg) fg.value = '';
   if (fb) fb.value = '';
   markDirty(); save();
+  ensureFotoOrdnerState();
   renderFotos();
 }
 
 function renderFotos() {
   const grid = document.getElementById('foto-grid');
+  if (!grid) return;
+  ensureFotoOrdnerState();
+  renderFotoAlbumTabs();
   const fgeb = document.getElementById('foto-filter-gebaeude')?.value || '';
   const fber = document.getElementById('foto-filter-bereich')?.value || '';
+  const forder = _fotoOrdnerTab;
   const filtered = state.fotos.filter(f =>
+    (!forder || f.ordner === forder) &&
     (!fgeb || f.gebaeude === fgeb) &&
     (!fber || f.bereich === fber)
   );
@@ -3966,19 +4305,21 @@ function renderFotos() {
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">🖼️</div><div class="empty-text">Keine Fotos gefunden.</div></div>';
     return;
   }
-  grid.innerHTML = filtered.map(f => `
-    <div class="foto-card" style="cursor:zoom-in;" onclick="openLightbox('${f.src}', '${f.name} · ${f.gebaeude} · ${f.bereich}')">
-      <img src="${f.src}" alt="${f.name}" loading="lazy">
+  grid.innerHTML = filtered.map(f => {
+    const cap = `${f.name || ''} · ${f.ordner || '—'} · ${f.gebaeude} · ${f.bereich}`;
+    return `
+    <div class="foto-card" style="cursor:zoom-in;" onclick="openLightboxSrc(${JSON.stringify(f.src)}, ${JSON.stringify(cap)})">
+      <img src="${f.src}" alt="${_escAttr(f.name)}" loading="lazy">
       <div class="foto-actions" onclick="event.stopPropagation()">
-        <button class="foto-action-btn" onclick="openFotoEdit('${f.id}')">✏️ Bereich</button>
+        <button class="foto-action-btn" onclick="openFotoEdit('${f.id}')">✏️ Bearbeiten</button>
         <button class="foto-action-btn danger" onclick="deleteFoto('${f.id}')">🗑 Löschen</button>
       </div>
       <div class="foto-card-meta">
-        <div class="foto-card-date">${formatDate(f.datum)} · ${f.gebaeude}</div>
+        <div class="foto-card-date">${formatDate(f.datum)} · ${f.gebaeude} · ${_escAttr(f.ordner || '')}</div>
         <div class="foto-card-label">${f.bereich}</div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 function deleteFoto(id) {
@@ -3997,9 +4338,11 @@ function openFotoEdit(id) {
   const f = state.fotos.find(x => x.id == id);
   if (!f) return;
   _editFotoId = id;
+  ensureFotoOrdnerState();
   document.getElementById('foto-edit-preview').src = f.src;
   document.getElementById('foto-edit-gebaeude').value = f.gebaeude;
   document.getElementById('foto-edit-bereich').value = f.bereich;
+  fillFotoOrdnerSelect('foto-edit-ordner', f.ordner);
   document.getElementById('foto-edit-modal').style.display = 'flex';
 }
 
@@ -4013,6 +4356,9 @@ function saveFotoEdit() {
   if (f) {
     f.gebaeude = document.getElementById('foto-edit-gebaeude').value;
     f.bereich  = document.getElementById('foto-edit-bereich').value;
+    const o = document.getElementById('foto-edit-ordner')?.value || '';
+    const alben = state.fotoAlben || [];
+    f.ordner = alben.includes(o) ? o : (alben[0] || o || 'Sonstiges');
     markDirty(); save();
     renderFotos();
   }
@@ -4022,6 +4368,66 @@ function saveFotoEdit() {
 function deleteFotoFromEdit() {
   if (_editFotoId) deleteFoto(_editFotoId);
   closeFotoEdit();
+}
+
+function openFotoAlbenModal() {
+  ensureFotoOrdnerState();
+  const list = document.getElementById('foto-alben-editor-list');
+  const modal = document.getElementById('foto-alben-modal');
+  if (!list || !modal) return;
+  list.innerHTML = '';
+  (state.fotoAlben || []).forEach(name => addFotoAlbumRow(name));
+  modal.style.display = 'flex';
+}
+
+function closeFotoAlbenModal() {
+  const m = document.getElementById('foto-alben-modal');
+  if (m) m.style.display = 'none';
+}
+
+function addFotoAlbumRow(initial) {
+  const list = document.getElementById('foto-alben-editor-list');
+  if (!list) return;
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;margin-bottom:8px;align-items:center;';
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'form-input';
+  inp.style.flex = '1';
+  if (initial) inp.value = initial;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-secondary';
+  btn.textContent = '✕';
+  btn.onclick = () => row.remove();
+  row.appendChild(inp);
+  row.appendChild(btn);
+  list.appendChild(row);
+}
+
+function saveFotoAlbenFromModal() {
+  const list = document.getElementById('foto-alben-editor-list');
+  if (!list) return;
+  const inputs = [...list.querySelectorAll('input[type="text"]')];
+  const names = inputs.map(i => i.value.trim()).filter(Boolean);
+  const seen = new Set();
+  const unique = names.filter(n => {
+    if (seen.has(n)) return false;
+    seen.add(n);
+    return true;
+  });
+  if (!unique.length) {
+    alert('Mindestens einen Ordner-Namen eintragen.');
+    return;
+  }
+  state.fotoAlben = unique;
+  (state.fotos || []).forEach(f => {
+    if (f && !unique.includes(f.ordner)) f.ordner = unique[0];
+  });
+  if (_fotoOrdnerTab && !unique.includes(_fotoOrdnerTab)) _fotoOrdnerTab = '';
+  markDirty(); save();
+  closeFotoAlbenModal();
+  renderFotos();
 }
 
 // ── UTILS ─────────────────────────────────────────────────────
@@ -4040,10 +4446,80 @@ document.getElementById('modal').addEventListener('click', function(e) {
 });
 
 // ── ZUSTAND (So sieht's aus) ───────────────────────────────────
+let _zustandPending = [];
+
+function removeZustandPending(id) {
+  _zustandPending = _zustandPending.filter(x => x.id !== id);
+  renderZustandPendingPreview();
+}
+
+function renderZustandPendingPreview() {
+  const el = document.getElementById('zf-preview');
+  if (!el) return;
+  if (!_zustandPending.length) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = _zustandPending.map(p => {
+    const qid = JSON.stringify(p.id);
+    return `<div style="position:relative;width:64px;height:64px;">
+      <img src="${p.thumb}" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:3px;border:1px solid var(--border);">
+      <button type="button" onclick="removeZustandPending(${qid})" style="position:absolute;top:-5px;right:-5px;background:var(--rust);border:none;color:#fff;width:18px;height:18px;border-radius:50%;font-size:10px;cursor:pointer;line-height:1;">×</button>
+    </div>`;
+  }).join('');
+}
+
+function ingestZustandFiles(rawFiles, append) {
+  const list = (rawFiles || []).filter(isImageFile);
+  if (!list.length) {
+    if ((rawFiles || []).length) alert('Keine Bilddateien erkannt (JPG, PNG, HEIC …).');
+    return;
+  }
+  if (!append) _zustandPending = [];
+  let done = 0;
+  const bump = () => {
+    done++;
+    if (done === list.length) renderZustandPendingPreview();
+  };
+  list.forEach(file => {
+    const id = Date.now() + Math.random();
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      _zustandPending.push({ id, file, thumb: e.target.result });
+      bump();
+    };
+    reader.onerror = () => bump();
+    try {
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      bump();
+    }
+  });
+}
+
+function handleZustandFilesPick(event) {
+  const input = event.target;
+  const files = Array.from(input.files || []);
+  const append = input.id === 'zf-input-files-more' || input.id === 'zf-input-folder-more';
+  if (input) input.value = '';
+  ingestZustandFiles(files, append);
+}
+
+function handleZustandFotoDrop(event) {
+  const files = Array.from(event.dataTransfer.files || []);
+  ingestZustandFiles(files, _zustandPending.length > 0);
+}
+
 function openZustandModal() {
+  _zustandPending = [];
   document.getElementById('zf-datum').value = new Date().toISOString().split('T')[0];
   document.getElementById('zf-bereich').value = '';
-  document.getElementById('zf-file').value = '';
+  ['zf-input-files', 'zf-input-folder', 'zf-input-files-more', 'zf-input-folder-more'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  renderZustandPendingPreview();
   document.getElementById('modal-zustand').classList.add('open');
 }
 function closeZustandModal() {
@@ -4064,53 +4540,85 @@ function resizeImage(dataUrl, maxPx, quality, callback) {
   img.src = dataUrl;
 }
 
-function saveZustandFoto() {
-  const file = document.getElementById('zf-file').files[0];
-  if (!file) { alert('Bitte ein Foto auswählen.'); return; }
+function _addZustandFotoUploadOnce(file, gebaeude, typ, bereich, datum) {
+  return new Promise((resolve, reject) => {
+    if (typeof window._uploadFoto !== 'function') {
+      reject(new Error('no-upload'));
+      return;
+    }
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `zustand/${Date.now()}_${Math.random().toString(36).slice(2, 9)}_${safeName}`;
+    window._uploadFoto(file, path).then(({ url, storagePath }) => {
+      if (!state.zustandFotos) state.zustandFotos = [];
+      state.zustandFotos.unshift({ id: Date.now() + Math.random(), src: url, storagePath, gebaeude, typ, bereich, datum });
+      resolve();
+    }).catch(reject);
+  });
+}
+
+function _addZustandFotoBase64Once(file, gebaeude, typ, bereich, datum) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = (e) => {
+      resizeImage(e.target.result, 800, 0.82, (srcThumb) => {
+        resizeImage(e.target.result, 3000, 0.92, (srcHD) => {
+          if (!state.zustandFotos) state.zustandFotos = [];
+          state.zustandFotos.unshift({ id: Date.now() + Math.random(), src: srcThumb, srcHD, gebaeude, typ, bereich, datum });
+          resolve();
+        });
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function saveZustandFoto() {
+  if (!_zustandPending.length) {
+    alert('Bitte mindestens ein Foto auswählen.');
+    return;
+  }
 
   const gebaeude = document.getElementById('zf-gebaeude').value;
   const typ      = document.getElementById('zf-typ').value;
   const bereich  = document.getElementById('zf-bereich').value || 'Allgemein';
   const datum    = document.getElementById('zf-datum').value;
   const saveBtn  = document.querySelector('#modal-zustand .btn-primary');
+  const files    = _zustandPending.map(x => x.file);
+  const n        = files.length;
 
-  if (typeof window._uploadFoto === 'function') {
-    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Lade hoch…'; }
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `zustand/${Date.now()}_${safeName}`;
-    window._uploadFoto(file, path).then(({ url, storagePath }) => {
-      const foto = { id: Date.now() + Math.random(), src: url, storagePath, gebaeude, typ, bereich, datum };
-      if (!state.zustandFotos) state.zustandFotos = [];
-      state.zustandFotos.unshift(foto);
-      markDirty(); save();
-      closeZustandModal();
-      renderZustand();
-      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Speichern'; }
-    }).catch(e => {
-      console.error('Storage-Upload fehlgeschlagen, nutze base64:', e);
-      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Speichern'; }
-      _saveZustandFotoBase64(file, gebaeude, typ, bereich, datum);
-    });
-  } else {
-    _saveZustandFotoBase64(file, gebaeude, typ, bereich, datum);
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = n > 1 ? `Lade hoch… (0/${n})` : 'Lade hoch…';
   }
-}
 
-function _saveZustandFotoBase64(file, gebaeude, typ, bereich, datum) {
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    resizeImage(e.target.result, 800, 0.82, (srcThumb) => {
-      resizeImage(e.target.result, 3000, 0.92, (srcHD) => {
-        const foto = { id: Date.now() + Math.random(), src: srcThumb, srcHD, gebaeude, typ, bereich, datum };
-        if (!state.zustandFotos) state.zustandFotos = [];
-        state.zustandFotos.unshift(foto);
-        markDirty(); save();
-        closeZustandModal();
-        renderZustand();
-      });
-    });
-  };
-  reader.readAsDataURL(file);
+  for (let i = 0; i < n; i++) {
+    const file = files[i];
+    if (saveBtn && n > 1) saveBtn.textContent = `Lade hoch… (${i + 1}/${n})`;
+    try {
+      if (typeof window._uploadFoto === 'function') {
+        await _addZustandFotoUploadOnce(file, gebaeude, typ, bereich, datum);
+      } else {
+        await _addZustandFotoBase64Once(file, gebaeude, typ, bereich, datum);
+      }
+    } catch (e) {
+      console.error('Storage-Upload fehlgeschlagen, nutze base64:', e);
+      try {
+        await _addZustandFotoBase64Once(file, gebaeude, typ, bereich, datum);
+      } catch (e2) {
+        console.error(e2);
+      }
+    }
+  }
+
+  _zustandPending = [];
+  markDirty(); save();
+  closeZustandModal();
+  renderZustand();
+  if (saveBtn) {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Speichern';
+  }
 }
 
 function renderZustand() {
@@ -6498,6 +7006,25 @@ function printRaumCollage() {
   </div>
 </div>
 
+<!-- FOTO-ORDNER VERWALTEN -->
+<div class="modal-overlay" id="foto-alben-modal" style="display:none;" onclick="if(event.target===this)closeFotoAlbenModal()">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <div class="modal-title">📁 Foto-Ordner</div>
+      <button class="modal-close" onclick="closeFotoAlbenModal()">×</button>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:12px;">
+      <p style="margin:0;font-size:12px;color:var(--text-muted);line-height:1.45;">Namen der Reiter anpassen (z.&nbsp;B. Haus&nbsp;1, Innen, Außen). Fotos mit gelöschtem Ordner werden dem ersten Eintrag zugeordnet.</p>
+      <div id="foto-alben-editor-list"></div>
+      <button type="button" class="btn btn-secondary" style="align-self:flex-start;font-size:11px;" onclick="addFotoAlbumRow('')">+ Ordner-Zeile</button>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px;">
+        <button type="button" class="btn btn-secondary" onclick="closeFotoAlbenModal()">Abbrechen</button>
+        <button type="button" class="btn btn-primary" onclick="saveFotoAlbenFromModal()">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- FOTO EDIT MODAL -->
 <div class="modal-overlay" id="foto-edit-modal" style="display:none;" onclick="if(event.target===this)closeFotoEdit()">
   <div class="modal" style="max-width:360px;">
@@ -6507,6 +7034,10 @@ function printRaumCollage() {
     </div>
     <div style="padding:20px;display:flex;flex-direction:column;gap:14px;">
       <img id="foto-edit-preview" src="" style="width:100%;height:140px;object-fit:cover;border-radius:4px;border:1px solid var(--border);">
+      <div>
+        <label class="form-label">Ordner (Reiter)</label>
+        <select class="form-input" id="foto-edit-ordner"></select>
+      </div>
       <div>
         <label class="form-label">Gebäude</label>
         <select class="form-input" id="foto-edit-gebaeude">
@@ -6544,7 +7075,19 @@ function printRaumCollage() {
       <button class="modal-close" onclick="cancelFotoUpload()">×</button>
     </div>
     <div style="padding:20px;display:flex;flex-direction:column;gap:16px;">
-      <div id="foto-upload-preview" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;max-height:200px;overflow-y:auto;"></div>
+      <div id="foto-upload-preview" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;max-height:220px;overflow-y:auto;"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <label for="foto-input-more" class="btn btn-secondary" style="font-size:11px;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;" onclick="event.stopPropagation();">+ Weitere Dateien</label>
+        <label for="foto-input-folder-more" class="btn btn-secondary" style="font-size:11px;margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;" onclick="event.stopPropagation();">+ Weiterer Ordner</label>
+      </div>
+      <div>
+        <label class="form-label">Foto-Ordner (Reiter)</label>
+        <select class="form-input" id="foto-upload-ordner"></select>
+      </div>
+      <label style="display:flex;align-items:flex-start;gap:10px;font-size:12px;color:var(--text-muted);cursor:pointer;line-height:1.35;">
+        <input type="checkbox" id="foto-upload-auto-ordner" style="margin-top:2px;accent-color:var(--gold);width:14px;height:14px;flex-shrink:0;">
+        <span>Ordner aus Unterordner-Namen übernehmen, wenn der Name oben in „Ordner bearbeiten“ existiert (nützlich nach Ordner-Upload).</span>
+      </label>
       <div>
         <label class="form-label">Gebäude</label>
         <select class="form-input" id="foto-upload-gebaeude">
@@ -6553,7 +7096,7 @@ function printRaumCollage() {
         </select>
       </div>
       <div>
-        <label class="form-label">Bereich</label>
+        <label class="form-label">Bereich (Raum / Lage)</label>
         <select class="form-input" id="foto-upload-bereich">
           <option value="Außen">Außen</option>
           <option value="Keller">Keller</option>
@@ -6565,7 +7108,7 @@ function printRaumCollage() {
       </div>
       <div style="display:flex;gap:10px;justify-content:flex-end;">
         <button class="btn btn-secondary" onclick="cancelFotoUpload()">Abbrechen</button>
-        <button class="btn btn-primary" onclick="confirmFotoUpload()">Speichern</button>
+        <button class="btn btn-primary" onclick="confirmFotoUpload()">Hochladen</button>
       </div>
     </div>
   </div>
