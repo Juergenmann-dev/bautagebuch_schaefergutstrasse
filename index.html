@@ -2626,11 +2626,11 @@
     <div class="form-grid">
       <div class="form-group">
         <label class="form-label">Von</label>
-        <input type="date" class="form-input" id="f-datum-von">
+        <input type="date" class="form-input" id="f-datum-von" oninput="updateArbeitszeitInfo()">
       </div>
       <div class="form-group">
         <label class="form-label">Bis <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
-        <input type="date" class="form-input" id="f-datum-bis">
+        <input type="date" class="form-input" id="f-datum-bis" oninput="updateArbeitszeitInfo()">
       </div>
       <div class="form-group">
         <label class="form-label">Gebäude</label>
@@ -3344,17 +3344,27 @@ function openEditEintragModal(id) {
   }
 }
 
+function calcArbeitstage(von, bis) {
+  if (!von || !bis) return 1;
+  const diff = Math.round((new Date(bis) - new Date(von)) / 86400000);
+  return diff > 1 ? diff : 1;
+}
+
 function updateArbeitszeitInfo() {
   const p = parseFloat(document.getElementById('f-personen')?.value) || 0;
   const h = parseFloat(document.getElementById('f-stunden')?.value) || 0;
+  const von = document.getElementById('f-datum-von')?.value || '';
+  const bis = document.getElementById('f-datum-bis')?.value || '';
   const wrap = document.getElementById('f-arbeitszeit-info');
   if (!wrap) return;
   if (p > 0 && h > 0) {
-    const gesamt = parseFloat((p * h).toFixed(2));
+    const tage = calcArbeitstage(von, bis);
+    const gesamt = parseFloat((p * h * tage).toFixed(2));
     const pText = p === 1 ? '1 Person' : `${p} Personen`;
-    const hText = h === 1 ? '1 Std.' : `${h} Std.`;
+    const hText = `${h} Std./Tag`;
+    const tText = tage > 1 ? ` × ${tage} Tage` : '';
     wrap.style.display = '';
-    wrap.querySelector('div').textContent = `${pText} × ${hText} = ${gesamt} Std. gesamt`;
+    wrap.querySelector('div').textContent = `${pText} × ${hText}${tText} = ${gesamt} Std. gesamt`;
   } else {
     wrap.style.display = 'none';
   }
@@ -3919,7 +3929,7 @@ function renderEintraege() {
           ${e.belegnr ? `<span class="belegnr-badge">${e.belegnr}</span>` : ''}
         </div>
         <div class="eintrag-title">${e.titel}</div>
-        ${(e.stunden > 0) ? (() => { const ges = parseFloat((e.personen * e.stunden).toFixed(2)); const pText = e.personen > 1 ? `${e.personen} Personen × ${e.stunden} Std. = ${ges} Std. gesamt` : `${e.stunden} Std.`; return `<div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);margin-bottom:6px;opacity:0.75;">⏱ ${pText}</div>`; })() : ''}
+        ${(e.stunden > 0) ? (() => { const tage = calcArbeitstage(e.datum, e.datumBis); const ges = parseFloat((e.personen * e.stunden * tage).toFixed(2)); const pText = e.personen > 1 ? `${e.personen} Personen × ${e.stunden} Std./Tag${tage > 1 ? ` × ${tage} Tage` : ''} = ${ges} Std. gesamt` : `${e.stunden} Std./Tag${tage > 1 ? ` × ${tage} Tage = ${ges} Std. gesamt` : ''}`; return `<div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);margin-bottom:6px;opacity:0.75;">⏱ ${pText}</div>`; })() : ''}
         ${e.notizen ? `<div class="eintrag-text">${e.notizen}</div>` : ''}
         ${e.fotos && e.fotos.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">${e.fotos.map(src => `<img src="${src}" onclick="openLightboxSrc('${src}','')" style="width:64px;height:64px;object-fit:cover;border-radius:3px;border:1px solid var(--border);cursor:zoom-in;">`).join('')}</div>` : ''}
         ${e.belege && e.belege.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${e.belege.map(b => `<a href="${b.src}" target="_blank" style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:3px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);text-decoration:none;">🧾 ${b.name}</a>`).join('')}</div>` : ''}
