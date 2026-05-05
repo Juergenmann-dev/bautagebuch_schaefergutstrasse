@@ -2625,8 +2625,12 @@
     <div class="modal-title">Neuer Tagebuch-Eintrag</div>
     <div class="form-grid">
       <div class="form-group">
-        <label class="form-label">Datum</label>
-        <input type="date" class="form-input" id="f-datum">
+        <label class="form-label">Von</label>
+        <input type="date" class="form-input" id="f-datum-von">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Bis <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+        <input type="date" class="form-input" id="f-datum-bis">
       </div>
       <div class="form-group">
         <label class="form-label">Gebäude</label>
@@ -3265,7 +3269,8 @@ function _renderEintragFotoPreview() {
 function openModal() {
   _eintragFotos = [];
   _eintragFotoFiles.clear();
-  document.getElementById('f-datum').value = new Date().toISOString().split('T')[0];
+  document.getElementById('f-datum-von').value = new Date().toISOString().split('T')[0];
+  document.getElementById('f-datum-bis').value = '';
   document.getElementById('f-gebaeude').value = 'G I';
   updateGewerkOptions();
   document.getElementById('f-fortschritt').value = 0;
@@ -3348,7 +3353,8 @@ async function saveEintrag() {
     id: eintragId,
     belegnr: nextBelegnummer(),
     createdAt: new Date().toISOString(),
-    datum: document.getElementById('f-datum').value,
+    datum: document.getElementById('f-datum-von').value,
+    datumBis: document.getElementById('f-datum-bis').value || null,
     gebaeude: document.getElementById('f-gebaeude').value,
     gewerk: document.getElementById('f-gewerk').value,
     kosten: parseFloat(document.getElementById('f-kosten').value) || 0,
@@ -3715,7 +3721,7 @@ function renderDashboard() {
   const la = document.getElementById('last-activity');
   if (state.eintraege.length > 0) {
     const e = state.eintraege[0];
-    la.innerHTML = `<span style="color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;">${formatDate(e.datum)}</span><br>${e.titel}<br><span style="color:var(--text-muted);">${e.gebaeude} · ${e.gewerk}</span>`;
+    la.innerHTML = `<span style="color:var(--gold);font-family:'IBM Plex Mono',monospace;font-size:11px;">${formatDateRange(e)}</span><br>${e.titel}<br><span style="color:var(--text-muted);">${e.gebaeude} · ${e.gewerk}</span>`;
   }
 
   // Kosten summary
@@ -3794,8 +3800,15 @@ function renderEintraege() {
   list.innerHTML = filtered.map(e => `
     <div class="eintrag${e.storniert ? ' storniert' : ''}">
       <div class="eintrag-date">
-        <span class="eintrag-date-day">${e.datum ? e.datum.split('-')[2] : '—'}</span>
-        ${e.datum ? e.datum.substring(0,7) : ''}
+        ${e.datumBis ? `
+          <span class="eintrag-date-day" style="font-size:11px;">${e.datum ? e.datum.split('-')[2] : '—'}</span>
+          <span style="font-size:9px;opacity:0.6;line-height:1;">bis</span>
+          <span class="eintrag-date-day" style="font-size:11px;">${e.datumBis.split('-')[2]}</span>
+          <span style="font-size:9px;opacity:0.7;">${e.datum ? e.datum.substring(0,7) : ''}</span>
+        ` : `
+          <span class="eintrag-date-day">${e.datum ? e.datum.split('-')[2] : '—'}</span>
+          ${e.datum ? e.datum.substring(0,7) : ''}
+        `}
       </div>
       <div class="eintrag-body">
         <div class="eintrag-tags" style="align-items:center;">
@@ -4108,7 +4121,7 @@ function renderKosten() {
   const total = kostEintraege.reduce((s, e) => s + e.kosten, 0);
   tbody.innerHTML = kostEintraege.map(e => `
     <tr>
-      <td>${formatDate(e.datum)}</td>
+      <td>${formatDateRange(e)}</td>
       <td>${e.titel}</td>
       <td><span class="gebaeude-badge ${e.gebaeude==='G II'?'badge-g2':'badge-g1'}">${e.gebaeude}</span></td>
       <td style="color:var(--stone);">${e.gewerk}</td>
@@ -4438,6 +4451,13 @@ function formatDate(iso) {
   if (!iso) return '—';
   const [y, m, d] = iso.split('-');
   return `${d}.${m}.${y}`;
+}
+
+function formatDateRange(e) {
+  if (!e) return '—';
+  const von = formatDate(e.datum);
+  if (!e.datumBis) return von;
+  return `${von} – ${formatDate(e.datumBis)}`;
 }
 
 // Close modal on overlay click
@@ -5893,7 +5913,7 @@ function exportTagebuch() {
   const rows = state.eintraege.map(e =>
     `<tr${e.storniert?' style="opacity:0.4;text-decoration:line-through;"':''}>
       <td>${e.belegnr||'—'}</td>
-      <td>${formatDate(e.datum)}</td>
+      <td>${formatDateRange(e)}</td>
       <td>${e.gebaeude}</td>
       <td>${e.gewerk}</td>
       <td>${e.nutzungsart||'—'}</td>
@@ -5914,7 +5934,7 @@ function exportCSV() {
   const escape = v => `"${String(v||'').replace(/"/g,'""')}"`;
   const rows = state.eintraege.map(e => [
     e.belegnr||'',
-    e.datum||'',
+    e.datumBis ? `${e.datum||''}–${e.datumBis}` : (e.datum||''),
     e.createdAt ? new Date(e.createdAt).toLocaleString('de-DE') : '',
     e.gebaeude||'',
     e.gewerk||'',
@@ -5947,7 +5967,7 @@ function exportKosten() {
     const sum = es.reduce((s,e)=>s+e.kosten,0);
     total += sum;
     html += `<h2>${g}</h2><table><thead><tr><th>Datum</th><th>Gebäude</th><th>Eintrag</th><th>Kosten</th></tr></thead><tbody>`;
-    html += es.map(e=>`<tr><td>${formatDate(e.datum)}</td><td>${e.gebaeude}</td><td>${e.titel}</td><td style="text-align:right;">${e.kosten.toLocaleString('de-DE',{style:'currency',currency:'EUR'})}</td></tr>`).join('');
+    html += es.map(e=>`<tr><td>${formatDateRange(e)}</td><td>${e.gebaeude}</td><td>${e.titel}</td><td style="text-align:right;">${e.kosten.toLocaleString('de-DE',{style:'currency',currency:'EUR'})}</td></tr>`).join('');
     html += `<tr style="font-weight:bold;"><td colspan="3">Summe ${g}</td><td style="text-align:right;">${sum.toLocaleString('de-DE',{style:'currency',currency:'EUR'})}</td></tr></tbody></table>`;
   });
   html += `<h2>Gesamt: ${total.toLocaleString('de-DE',{style:'currency',currency:'EUR'})}</h2>`;
@@ -5966,7 +5986,7 @@ function exportGesamt() {
   const msRows = (state.meilensteine||[]).map(m =>
     `<tr><td>${MS_PHASE_LABEL[m.phase]||'—'}</td><td>${m.titel}</td><td>${m.gebaeude||'—'}</td><td>${m.datum?formatDate(m.datum):'—'}</td><td>${{offen:'Offen',laufend:'In Arbeit',erreicht:'Erreicht'}[m.status]||m.status}</td></tr>`).join('');
   const eRows = state.eintraege.slice(0,50).map(e =>
-    `<tr><td>${formatDate(e.datum)}</td><td>${e.gebaeude}</td><td>${e.gewerk}</td><td>${e.titel}</td><td style="text-align:right;">${e.kosten>0?e.kosten.toLocaleString('de-DE',{style:'currency',currency:'EUR'}):'—'}</td></tr>`).join('');
+    `<tr><td>${formatDateRange(e)}</td><td>${e.gebaeude}</td><td>${e.gewerk}</td><td>${e.titel}</td><td style="text-align:right;">${e.kosten>0?e.kosten.toLocaleString('de-DE',{style:'currency',currency:'EUR'}):'—'}</td></tr>`).join('');
   printWindow('Gesamtbericht', `
     <h2>Projektdaten</h2><table><tbody>
       <tr><td>Objekt</td><td>Schäfergutstraße 1, 09623 Frauenstein (Nassau)</td></tr>
@@ -6058,7 +6078,7 @@ function _buildVorschauHtml(pubState) {
     tbHtml = '<h2 style="font-family:\'Playfair Display\',serif;color:#c9a84c;margin:30px 0 14px;">Bautagebuch (' + pubState.eintraege.length + ' Eintr&auml;ge)</h2>';
     tbHtml += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="border-bottom:1px solid #333;"><th style="text-align:left;padding:6px 10px;color:#999;">Datum</th><th style="text-align:left;padding:6px 10px;color:#999;">Gewerk</th><th style="text-align:left;padding:6px 10px;color:#999;">Eintrag</th></tr></thead><tbody>';
     tbHtml += pubState.eintraege.slice(0,30).map(function(e){
-      return '<tr style="border-bottom:1px solid #1a1a1a;"><td style="padding:6px 10px;color:#888;">' + formatDate(e.datum) + '</td><td style="padding:6px 10px;color:#aaa;">' + e.gewerk + '</td><td style="padding:6px 10px;color:#ccc;">' + e.titel + '</td></tr>';
+      return '<tr style="border-bottom:1px solid #1a1a1a;"><td style="padding:6px 10px;color:#888;">' + formatDateRange(e) + '</td><td style="padding:6px 10px;color:#aaa;">' + e.gewerk + '</td><td style="padding:6px 10px;color:#ccc;">' + e.titel + '</td></tr>';
     }).join('');
     tbHtml += '</tbody></table>';
   }
