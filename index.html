@@ -1693,6 +1693,10 @@
       <span class="stat-lbl">Ausgaben</span>
     </div>
     <div class="header-stat">
+      <span class="stat-val" id="stat-stunden">0 Std.</span>
+      <span class="stat-lbl">Arbeitsstunden</span>
+    </div>
+    <div class="header-stat">
       <span class="stat-val" id="stat-fortschritt">0%</span>
       <span class="stat-lbl">Fortschritt</span>
     </div>
@@ -3736,8 +3740,14 @@ async function adminToggleAdmin(uid, value) {
 function updateHeader() {
   const total = state.eintraege.reduce((s, e) => s + e.kosten, 0);
   const pct = getGesamtFortschritt();
+  const gesamtStunden = parseFloat(state.eintraege.reduce((s, e) => {
+    if (!e.stunden) return s;
+    const tage = calcArbeitstage(e.datum, e.datumBis);
+    return s + (e.personen || 1) * e.stunden * tage;
+  }, 0).toFixed(2));
   document.getElementById('stat-tage').textContent = state.eintraege.length;
   document.getElementById('stat-kosten').textContent = formatEuro(total);
+  document.getElementById('stat-stunden').textContent = gesamtStunden + ' Std.';
   document.getElementById('stat-fortschritt').textContent = pct + '%';
   document.getElementById('m-eintraege').textContent = state.eintraege.length;
   document.getElementById('m-kosten').textContent = formatEuro(total);
