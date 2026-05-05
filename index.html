@@ -3350,7 +3350,7 @@ function updateArbeitszeitInfo() {
   const wrap = document.getElementById('f-arbeitszeit-info');
   if (!wrap) return;
   if (p > 0 && h > 0) {
-    const gesamt = p * h;
+    const gesamt = parseFloat((p * h).toFixed(2));
     const pText = p === 1 ? '1 Person' : `${p} Personen`;
     const hText = h === 1 ? '1 Std.' : `${h} Std.`;
     wrap.style.display = '';
@@ -3919,7 +3919,7 @@ function renderEintraege() {
           ${e.belegnr ? `<span class="belegnr-badge">${e.belegnr}</span>` : ''}
         </div>
         <div class="eintrag-title">${e.titel}</div>
-        ${(e.stunden > 0) ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);margin-bottom:4px;">${e.personen > 1 ? `${e.personen} Personen × ${e.stunden} Std. = ${e.personen * e.stunden} Std. gesamt` : `${e.stunden} Std.`}</div>` : ''}
+        ${(e.stunden > 0) ? (() => { const ges = parseFloat((e.personen * e.stunden).toFixed(2)); const pText = e.personen > 1 ? `${e.personen} Personen × ${e.stunden} Std. = ${ges} Std. gesamt` : `${e.stunden} Std.`; return `<div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);margin-bottom:6px;opacity:0.75;">⏱ ${pText}</div>`; })() : ''}
         ${e.notizen ? `<div class="eintrag-text">${e.notizen}</div>` : ''}
         ${e.fotos && e.fotos.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">${e.fotos.map(src => `<img src="${src}" onclick="openLightboxSrc('${src}','')" style="width:64px;height:64px;object-fit:cover;border-radius:3px;border:1px solid var(--border);cursor:zoom-in;">`).join('')}</div>` : ''}
         ${e.belege && e.belege.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${e.belege.map(b => `<a href="${b.src}" target="_blank" style="display:flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:3px 8px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);text-decoration:none;">🧾 ${b.name}</a>`).join('')}</div>` : ''}
