@@ -3877,10 +3877,9 @@ function renderEintraege() {
   fgwEl.innerHTML = '<option value="">Alle Gewerke</option>' +
     [...gewerkeSet].map(g => `<option value="${g}" ${g===cur?'selected':''}>${g}</option>`).join('');
 
-  const filtered = state.eintraege.filter(e =>
-    (!fgeb || e.gebaeude === fgeb) &&
-    (!fgew || e.gewerk === fgew)
-  );
+  const filtered = state.eintraege
+    .filter(e => (!fgeb || e.gebaeude === fgeb) && (!fgew || e.gewerk === fgew))
+    .sort((a, b) => (b.datum || '').localeCompare(a.datum || ''));
 
   // Auswertungsblock: Summen je Zahlungskonto
   const auswertung = document.getElementById('auswertung-block');
