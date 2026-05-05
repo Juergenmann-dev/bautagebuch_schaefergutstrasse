@@ -1468,7 +1468,7 @@
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
   import { getFirestore, doc, setDoc, getDoc, onSnapshot }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
-  import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject }
+  import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, listAll }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-storage.js";
   import { firebaseConfig } from "./firebase-config.js";
 
@@ -1534,6 +1534,53 @@
   window._deleteFotoFromStorage = async (storagePath) => {
     if (!storagePath) return;
     try { await deleteObject(ref(storage, storagePath)); } catch(e) {}
+  };
+
+  // Alle Fotos aus Firebase Storage wiederherstellen
+  window._recoverFotosFromStorage = async () => {
+    const folders = ['fotos', 'eintraege'];
+    let recovered = 0;
+    for (const folder of folders) {
+      try {
+        const result = await listAll(ref(storage, folder));
+        // Auch Unterordner durchsuchen
+        const allRefs = [...result.items];
+        for (const prefix of result.prefixes) {
+          try {
+            const sub = await listAll(prefix);
+            allRefs.push(...sub.items);
+          } catch(e) {}
+        }
+        for (const item of allRefs) {
+          const storagePath = item.fullPath;
+          const alreadyIn = state.fotos.some(f => f.storagePath === storagePath);
+          if (alreadyIn) continue;
+          try {
+            const url = await getDownloadURL(item);
+            const name = item.name;
+            state.fotos.push({
+              id: Date.now() + Math.random(),
+              src: url,
+              storagePath,
+              name,
+              datum: new Date().toISOString().split('T')[0],
+              gebaeude: 'G I',
+              bereich: 'Sonstiges',
+              ordner: (state.fotoAlben || [])[0] || 'Sonstiges',
+            });
+            recovered++;
+          } catch(e) {}
+        }
+      } catch(e) {}
+    }
+    if (recovered > 0) {
+      markDirty(); save();
+      if (typeof renderFotos === 'function') renderFotos();
+      alert(`✅ ${recovered} Foto${recovered !== 1 ? 's' : ''} aus Firebase Storage wiederhergestellt!\n\nBitte Ordner und Gebäude der wiederhergestellten Fotos prüfen und ggf. anpassen.`);
+    } else {
+      alert('Keine weiteren Fotos in Firebase Storage gefunden.');
+    }
+    return recovered;
   };
 
   const overlay = document.getElementById('login-overlay');
@@ -1891,6 +1938,7 @@
       <div class="foto-upload-toolbar foto-upload-actions">
         <label for="foto-input" class="btn btn-primary" style="margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Dateien wählen</label>
         <label for="foto-input-folder" class="btn btn-secondary" style="margin:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;">Ordner wählen</label>
+        <button class="btn btn-secondary" onclick="window._recoverFotosFromStorage && window._recoverFotosFromStorage()" style="margin:0;font-size:10px;opacity:0.7;" title="Fotos aus Firebase Storage wiederherstellen">↩ Wiederherstellen</button>
       </div>
     </div>
     <input type="file" id="foto-input" class="sr-file-input" multiple onchange="handleFotosPick(event, false)" title="Mehrere Bilder auswählen" aria-label="Mehrere Bilder auswählen">
@@ -4452,6 +4500,7 @@ function renderFotos() {
 }
 
 function deleteFoto(id) {
+  if (!confirm('Foto wirklich löschen? Das kann nicht rückgängig gemacht werden.')) return;
   const f = state.fotos.find(x => x.id == id);
   if (f && f.storagePath && typeof window._deleteFotoFromStorage === 'function') {
     window._deleteFotoFromStorage(f.storagePath);
@@ -4845,6 +4894,7 @@ function setVergleichNachher(id) {
 }
 
 function deleteZustandFoto(id) {
+  if (!confirm('Foto wirklich löschen? Das kann nicht rückgängig gemacht werden.')) return;
   const f = state.zustandFotos.find(x => x.id == id);
   if (f && f.storagePath && typeof window._deleteFotoFromStorage === 'function') {
     window._deleteFotoFromStorage(f.storagePath);
