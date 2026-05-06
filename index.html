@@ -1452,7 +1452,10 @@
     </div>
     <div class="login-field">
       <label>Passwort</label>
-      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+      <div style="position:relative;">
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" style="width:100%;padding-right:42px;box-sizing:border-box;">
+        <button type="button" onclick="const i=document.getElementById('login-password');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'👁':'🙈';" style="position:absolute;right:0;top:0;height:100%;width:38px;background:none;border:none;cursor:pointer;font-size:16px;color:#aaa;" title="Passwort anzeigen">👁</button>
+      </div>
     </div>
     <button class="login-btn" id="login-btn">Anmelden</button>
     <div class="login-error" id="login-error">Falsche E-Mail oder falsches Passwort.</div>
