@@ -39,7 +39,9 @@
     font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
     font-size: 14px;
     min-height: 100vh;
+    overflow-x: hidden;
   }
+  body.login-active { overflow: hidden; touch-action: none; }
 
   /* ── HEADER ── */
   .header {
@@ -764,15 +766,74 @@
   ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
 
   /* Responsive */
+  /* Sidebar-Overlay (Desktop: unsichtbar) */
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    z-index: 199;
+    opacity: 0;
+    transition: opacity 0.25s;
+    pointer-events: none;
+  }
+
+  /* Hamburger-Button (Desktop: versteckt) */
+  .sidebar-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-dim);
+    font-size: 20px;
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .sidebar-toggle:hover { border-color: var(--gold); color: var(--gold); }
+
   @media (max-width: 900px) {
     .dashboard-grid { grid-template-columns: 1fr; }
-    .main { padding: 16px; }
+    .main { padding: 20px 16px; }
     .header { padding: 0 16px; }
-    .sidebar { width: 56px; padding: 16px 0; }
-    .sidebar-group-label { display: none; }
-    .nav-tab { padding: 10px; justify-content: center; }
-    .nav-tab .tab-icon { font-size: 18px; }
-    .nav-tab span:not(.tab-icon) { display: none; }
+
+    /* Header: nur 2 Stats anzeigen */
+    .header-stats { gap: 16px; }
+    .header-stats .header-stat:nth-child(3),
+    .header-stats .header-stat:nth-child(4) { display: none; }
+    .header-sub { display: none; }
+
+    /* Hamburger einblenden */
+    .sidebar-toggle { display: flex; }
+
+    /* Sidebar wird Slide-out-Drawer */
+    .sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100vh;
+      width: 260px;
+      z-index: 200;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      padding-top: 24px;
+    }
+    .sidebar.open { transform: translateX(0); }
+
+    /* Im Drawer: volle Labels und Text */
+    .sidebar-group-label { display: block; }
+    .nav-tab { padding: 11px 20px; justify-content: flex-start; }
+    .nav-tab .tab-icon { font-size: 15px; }
+    .nav-tab span:not(.tab-icon) { display: inline; }
+
+    /* Overlay einblenden */
+    .sidebar-overlay { display: block; }
+    .sidebar-overlay.visible { opacity: 1; pointer-events: auto; }
+
     .info-grid { grid-template-columns: 1fr; }
     .form-grid { grid-template-columns: 1fr; }
     .form-full { grid-column: span 1; }
@@ -1374,21 +1435,31 @@
 
 <style>
   #login-overlay {
-    position: fixed; inset: 0; z-index: 99999;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 99999;
     background: #0e0d0b;
-    display: flex; align-items: center; justify-content: center; padding: 24px;
+    overflow: hidden;
     transition: opacity 0.4s ease;
   }
   #login-overlay.hidden { opacity: 0; pointer-events: none; }
   .login-box {
-    width: 100%; max-width: 400px;
-    background: #161410; border: 1px solid #2e2a22; border-radius: 4px;
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: calc(100% - 48px);
+    max-width: 400px;
+    box-sizing: border-box;
+    background: #161410; border: 1px solid #2e2a22; border-radius: 8px;
     padding: 40px 36px; box-shadow: 0 24px 60px rgba(0,0,0,0.6);
     animation: loginFadeUp 0.5s ease both;
   }
+  @media (max-width: 480px) {
+    .login-box { padding: 32px 24px; border-radius: 12px; }
+  }
   @keyframes loginFadeUp {
-    from { opacity:0; transform:translateY(16px); }
-    to   { opacity:1; transform:translateY(0); }
+    from { opacity:0; transform: translate(-50%, calc(-50% + 16px)); }
+    to   { opacity:1; transform: translate(-50%, -50%); }
   }
   .login-eyebrow {
     font-family:'IBM Plex Mono',monospace; font-size:10px;
@@ -1401,8 +1472,9 @@
   }
   .login-subtitle {
     font-family:'IBM Plex Mono',monospace; font-size:10px;
-    letter-spacing:0.1em; color:#5a5248; text-transform:uppercase;
+    letter-spacing:0.06em; color:#5a5248; text-transform:uppercase;
     margin-bottom:32px; padding-bottom:24px; border-bottom:1px solid #2e2a22;
+    white-space: normal; word-break: break-word; overflow-wrap: break-word;
   }
   .login-field { margin-bottom:16px; }
   .login-field label {
@@ -1438,7 +1510,7 @@
   }
 </style>
 </head>
-<body>
+<body class="login-active">
 
 <!-- LOGIN OVERLAY -->
 <div id="login-overlay">
@@ -1469,9 +1541,10 @@
            signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword,
            sendPasswordResetEmail }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
-  import { getFirestore, doc, setDoc, getDoc, onSnapshot }
+  import { getFirestore, doc, setDoc, getDoc, onSnapshot,
+           collection, addDoc, updateDoc, deleteDoc, getDocs, orderBy, query }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
-  import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject, listAll }
+  import { getStorage, ref, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject, listAll }
     from "https://www.gstatic.com/firebasejs/12.10.0/firebase-storage.js";
   import { firebaseConfig } from "./firebase-config.js";
 
@@ -1499,6 +1572,16 @@
     return newUid;
   };
   const db          = getFirestore(app);
+  window._db        = db;
+  window._collection = collection;
+  window._query      = query;
+  window._orderBy    = orderBy;
+  window._getDocs    = getDocs;
+  window._addDoc     = addDoc;
+  window._updateDoc  = updateDoc;
+  window._setDoc     = setDoc;
+  window._deleteDoc  = deleteDoc;
+  window._docRef     = (path, id) => doc(db, path, id);
   const storage     = getStorage(app);
   const STATE_DOC   = doc(db, 'bautagebuch', 'state');
   const USERS_DOC   = doc(db, 'bautagebuch', 'userAccess');
@@ -1549,16 +1632,29 @@
     reader.readAsDataURL(file);
   });
 
-  window._uploadFoto = async (file, path) => {
+  window._uploadFoto = async (file, path, onProgress) => {
     const compressed = await _compressImage(file);
     const storageRef = ref(storage, path);
-    const snap = await uploadBytes(storageRef, compressed);
-    const url = await getDownloadURL(snap.ref);
-    return { url, storagePath: path };
+    if (!onProgress) {
+      const snap = await uploadBytes(storageRef, compressed);
+      const url = await getDownloadURL(snap.ref);
+      return { url, storagePath: path };
+    }
+    return new Promise((resolve, reject) => {
+      const task = uploadBytesResumable(storageRef, compressed);
+      task.on('state_changed',
+        snap => onProgress(Math.round(snap.bytesTransferred / snap.totalBytes * 100)),
+        reject,
+        async () => { const url = await getDownloadURL(task.snapshot.ref); resolve({ url, storagePath: path }); }
+      );
+    });
   };
   window._deleteFotoFromStorage = async (storagePath) => {
     if (!storagePath) return;
     try { await deleteObject(ref(storage, storagePath)); } catch(e) {}
+  };
+  window._rawUpload = async (blob, path) => {
+    try { await uploadBytes(ref(storage, path), blob); } catch(e) { console.warn('_rawUpload failed', e); }
   };
 
   // Alle Fotos aus Firebase Storage wiederherstellen
@@ -1624,6 +1720,7 @@
   onAuthStateChanged(auth, async user => {
     if (user) {
       overlay.classList.add('hidden');
+      document.body.classList.remove('login-active');
       setTimeout(() => overlay.style.display = 'none', 400);
 
       const isAdmin = user.uid === ADMIN_UID || user.email === ADMIN_EMAIL;
@@ -1744,6 +1841,7 @@
 <!-- HEADER -->
 <header class="header">
   <div class="header-left">
+    <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" aria-label="Navigation öffnen">☰</button>
     <span class="header-title">Bautagebuch</span>
     <span class="header-sub">SCHÄFERGUTSTRASSE 1 / 2 · NASSAU · 09623 FRAUENSTEIN</span>
     <button id="logout-btn" title="Abmelden" style="
@@ -1788,6 +1886,8 @@
   </div>
 </header>
 
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
 <!-- APP BODY: SIDEBAR + MAIN -->
 <div class="app-body">
 
@@ -1824,6 +1924,12 @@
     <div class="sidebar-group-label">Wir</div>
     <div class="nav-tab" data-view="wir" onclick="showView('wir')"><span class="tab-icon">👥</span>Das sind wir</div>
     <div class="nav-tab" data-view="zustand" onclick="showView('zustand')"><span class="tab-icon">📸</span>So sieht's aus</div>
+  </div>
+  <div class="sidebar-group">
+    <div class="sidebar-group-label">Helfende Hände</div>
+    <div class="nav-tab" data-view="walloffame" onclick="showView('walloffame');renderWallOfFame()"><span class="tab-icon">🏆</span>Wall of Fame</div>
+    <div class="nav-tab" data-view="gaestebuch" onclick="showView('gaestebuch');renderGaestebuch()"><span class="tab-icon">📖</span>Gästebuch</div>
+    <div class="nav-tab" data-view="unterstuetzung" onclick="showView('unterstuetzung');renderUnterstuetzung()"><span class="tab-icon">💶</span>Unterstützung</div>
   </div>
   <div class="sidebar-group" id="sidebar-group-admin" style="display:none;">
     <div class="sidebar-group-label">Administration</div>
@@ -1980,11 +2086,12 @@
       </select>
       <select class="filter-select" id="foto-filter-bereich" onchange="renderFotos()">
         <option value="">Alle Bereiche</option>
-        <option value="Außen">Außen</option>
+        <option value="Außenansicht">Außenansicht</option>
+        <option value="Erdgeschoss">Erdgeschoss</option>
+        <option value="1. OG">1. Obergeschoss</option>
+        <option value="Dachboden">Dachboden</option>
+        <option value="Dach">Dach</option>
         <option value="Keller">Keller</option>
-        <option value="EG">Erdgeschoss</option>
-        <option value="OG">Obergeschoss</option>
-        <option value="Dach">Dachgeschoss</option>
         <option value="Sonstiges">Sonstiges</option>
       </select>
     </div>
@@ -2096,37 +2203,161 @@
         <select class="filter-select" id="zust-filter-typ" onchange="renderZustand()">
           <option value="">Alle Typen</option>
           <option value="vorher">Vorher</option>
-          <option value="aktuell">Aktuell</option>
           <option value="nachher">Nachher / Visualisierung</option>
+          <option value="baufortschritt">Baufortschritt</option>
         </select>
         <button class="btn btn-primary" onclick="openZustandModal()">+ Fotos hinzufügen</button>
         <button class="btn" onclick="printRaumCollage()" title="Druckfertige Collage pro Raum erstellen" style="background:rgba(181,81,42,0.12);border-color:var(--rust);color:var(--rust);">🖨 Collage drucken</button>
       </div>
     </div>
 
-    <!-- Vergleichs-Slider (wenn Vorher + Nachher vorhanden) -->
+    <!-- Vergleichs-Picker + gespeicherte Paare -->
     <div id="vergleich-section" style="display:none;margin-bottom:24px;">
-      <div class="card" style="margin-bottom:0;">
-        <div class="card-title">Vorher / Nachher Vergleich</div>
-        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-title" style="margin-bottom:12px;">Vergleichspaar erstellen</div>
+        <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
           <div style="flex:1;min-width:200px;">
             <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);margin-bottom:8px;letter-spacing:0.06em;">VORHER</div>
-            <img id="vergleich-vorher-img" src="" style="width:100%;height:220px;object-fit:cover;border-radius:2px;border:1px solid var(--border);">
+            <img id="vergleich-vorher-img" src="" style="width:100%;height:200px;object-fit:cover;border-radius:2px;border:1px solid var(--border);">
             <div id="vergleich-vorher-lbl" style="font-size:11px;color:var(--text-muted);margin-top:6px;font-family:'IBM Plex Mono',monospace;"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
+              <button class="btn btn-secondary" style="padding:5px 12px;font-size:13px;" onclick="navVergleich('vorher',-1)">←</button>
+              <span id="vergleich-vorher-nav" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);">1 / 1</span>
+              <button class="btn btn-secondary" style="padding:5px 12px;font-size:13px;" onclick="navVergleich('vorher',1)">→</button>
+            </div>
           </div>
-          <div style="font-size:24px;color:var(--border-light);">→</div>
+          <div style="font-size:24px;color:var(--border-light);padding-top:100px;">→</div>
           <div style="flex:1;min-width:200px;">
-            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6da85e;margin-bottom:8px;letter-spacing:0.06em;">AKTUELL / NACHHER</div>
-            <img id="vergleich-nachher-img" src="" style="width:100%;height:220px;object-fit:cover;border-radius:2px;border:1px solid var(--border);">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#6da85e;margin-bottom:8px;letter-spacing:0.06em;">NACHHER</div>
+            <img id="vergleich-nachher-img" src="" style="width:100%;height:200px;object-fit:cover;border-radius:2px;border:1px solid var(--border);">
             <div id="vergleich-nachher-lbl" style="font-size:11px;color:var(--text-muted);margin-top:6px;font-family:'IBM Plex Mono',monospace;"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
+              <button class="btn btn-secondary" style="padding:5px 12px;font-size:13px;" onclick="navVergleich('nachher',-1)">←</button>
+              <span id="vergleich-nachher-nav" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);">1 / 1</span>
+              <button class="btn btn-secondary" style="padding:5px 12px;font-size:13px;" onclick="navVergleich('nachher',1)">→</button>
+            </div>
           </div>
         </div>
-        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;" id="vergleich-picker"></div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap;">
+          <input id="paar-titel-input" type="text" placeholder="Bezeichnung z.B. »Heizung · Boiler«"
+            style="flex:1;min-width:200px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text);">
+          <button class="btn btn-primary" onclick="savePaar()">💾 Dieses Paar speichern</button>
+        </div>
+      </div>
+
+      <!-- Gespeicherte Paare -->
+      <div class="card" style="margin-bottom:0;" id="paare-card">
+        <div class="card-title" style="margin-bottom:12px;">Gespeicherte Paare <span id="paare-count" style="color:var(--text-muted);font-size:11px;"></span></div>
+        <div id="paare-liste"></div>
       </div>
     </div>
 
     <!-- Foto-Grid nach Typ gegliedert -->
     <div id="zustand-grid"></div>
+  </div>
+
+  <!-- ═══ WALL OF FAME ═══ -->
+  <div class="view" id="view-walloffame">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:20px;">Wall of Fame · helfende-haende-nassau.de</div>
+    <div id="wof-liste"></div>
+  </div>
+
+  <!-- ═══ GÄSTEBUCH ═══ -->
+  <div class="view" id="view-gaestebuch">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;">Gästebuch · Moderation</div>
+      <button class="btn" onclick="renderGaestebuch()" style="font-size:11px;padding:6px 14px;">↻ Neu laden</button>
+    </div>
+    <div id="gb-liste"></div>
+  </div>
+
+  <!-- Wall of Fame Modal -->
+  <div class="modal-overlay" id="wof-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+    <div class="modal" style="background:var(--surface);border-radius:var(--radius);padding:28px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;">
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);margin-bottom:16px;letter-spacing:0.06em;" id="wof-modal-title">NEUER EINTRAG</div>
+      <input type="hidden" id="wof-edit-id">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="form-label">Name *</label>
+          <input class="form-input" id="wof-name" placeholder="Vorname Nachname">
+        </div>
+        <div>
+          <label class="form-label">Ort</label>
+          <input class="form-input" id="wof-ort" placeholder="z.B. Dresden">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="form-label">Etage im Fachwerk</label>
+          <select class="form-input" id="wof-ebene">
+            <option value="dach">🏚 Dachgeschoss</option>
+            <option value="obergeschoss" selected>🪟 Obergeschoss</option>
+            <option value="fundament">🧱 Fundament</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Typ</label>
+          <select class="form-input" id="wof-typ">
+            <option value="helfer" selected>🤝 Helfer / Ehrenamt</option>
+            <option value="sponsor">⭐ Sponsor / Partner</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label class="form-label">Gewerk / Bereich</label>
+        <input class="form-input" id="wof-gewerk" placeholder="z.B. Dach & Zimmerei">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label class="form-label">Beschreibung</label>
+        <textarea class="form-input" id="wof-beschreibung" rows="3" placeholder="Was hat die Person geleistet?"></textarea>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label class="form-label">Logo (optional)</label>
+        <div style="display:flex;gap:8px;align-items:flex-start;">
+          <div style="flex:1;">
+            <input class="form-input" id="wof-logo" placeholder="https://... oder Datei hochladen →" oninput="wofLogoPreview()" style="margin-bottom:6px;">
+            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:var(--text-muted);background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:5px 10px;">
+              <span>📁 Bilddatei wählen</span>
+              <input type="file" id="wof-logo-file" accept="image/*" style="display:none;" onchange="wofLogoUpload(this)">
+            </label>
+            <span id="wof-logo-status" style="font-size:10px;color:var(--text-muted);margin-left:8px;"></span>
+          </div>
+          <div id="wof-logo-preview" style="width:48px;height:48px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;">
+            <span style="font-size:1.2rem;color:var(--text-muted);">🖼</span>
+          </div>
+        </div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label class="form-label">Website-Link (optional)</label>
+        <div style="display:flex;align-items:center;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+          <span style="padding:8px 10px;background:var(--surface2);color:var(--text-muted);font-size:12px;font-family:'IBM Plex Mono',monospace;border-right:1px solid var(--border);white-space:nowrap;flex-shrink:0;">https://</span>
+          <input style="border:none;background:transparent;flex:1;padding:8px 10px;color:var(--text);font-size:13px;outline:none;" id="wof-link" placeholder="z.B. emclient.de">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="form-label">Datum</label>
+          <input class="form-input" type="date" id="wof-datum">
+        </div>
+        <div>
+          <label class="form-label">Reihenfolge</label>
+          <input class="form-input" type="number" id="wof-reihenfolge" placeholder="1" min="1">
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <input type="checkbox" id="wof-fliese" style="width:15px;height:15px;accent-color:var(--gold);">
+        <label for="wof-fliese" style="font-size:12px;color:var(--text-dim);cursor:pointer;">🏺 Fliese in der Gaststube gebucht</label>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+        <input type="checkbox" id="wof-sichtbar" checked style="width:15px;height:15px;accent-color:var(--gold);">
+        <label for="wof-sichtbar" style="font-size:12px;color:var(--text-dim);cursor:pointer;">👁 Sichtbar auf der Website</label>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" onclick="closeWofModal()">Abbrechen</button>
+        <button class="btn btn-primary" onclick="saveWofEntry()">Speichern</button>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ RÄUME & AUFGABEN ═══ -->
@@ -2388,6 +2619,89 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- ═══ UNTERSTÜTZUNG (Helfende Hände) ═══ -->
+  <div class="view" id="view-unterstuetzung">
+    <div style="max-width:860px;margin:0 auto;">
+      <h2 style="font-family:'Playfair Display',serif;font-size:22px;color:var(--gold);margin-bottom:6px;">Unterstützung</h2>
+      <p style="color:var(--text-muted);font-size:12px;font-family:'IBM Plex Mono',monospace;margin-bottom:28px;">Zahlungsdaten und Verwendungsnachweis · helfende-haende-nassau.de/unterstuetzen.html</p>
+
+      <!-- Zahlungsdaten -->
+      <div class="info-block" style="margin-bottom:24px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;">PayPal</div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);">
+            <input type="checkbox" id="ust-paypal-aktiv" style="width:16px;height:16px;accent-color:var(--gold);">
+            Aktiv (PayPal-Button auf Website anzeigen)
+          </label>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:5px;">Statustext (wird angezeigt wenn deaktiviert)</label>
+          <textarea id="ust-paypal-hinweis" rows="2" placeholder="z.B. Sägen, Schleifen, Malern, Flexen — wir sind dran. Der PayPal-Link folgt in Kürze." style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);outline:none;resize:vertical;"></textarea>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:5px;">PayPal-Link</label>
+          <input id="ust-paypal-link" type="text" placeholder="https://paypal.me/HelfendeHaendeNassau" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text);outline:none;letter-spacing:0.02em;">
+        </div>
+        <button class="btn btn-primary" style="font-size:12px;padding:8px 18px;" onclick="saveZahlungsdaten()">💾 PayPal-Daten speichern</button>
+      </div>
+
+      <!-- Fortschrittsbalken -->
+      <div class="info-block" style="margin-bottom:24px;">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:16px;">Fortschrittsbalken</div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:12px;display:grid;margin-bottom:12px;">
+          <div>
+            <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:5px;">Eingegangen (€)</label>
+            <input id="ust-ist" type="number" min="0" placeholder="0" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);outline:none;">
+          </div>
+          <div>
+            <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:5px;">Ziel (€)</label>
+            <input id="ust-ziel" type="number" min="0" placeholder="noch offen" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);outline:none;">
+          </div>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:5px;">Hinweistext unter dem Balken</label>
+          <input id="ust-hinweis" type="text" placeholder="z.B. Ziel wird nach Facheinschätzung eingetragen" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);outline:none;">
+        </div>
+        <button class="btn btn-primary" style="font-size:12px;padding:8px 18px;" onclick="saveFortschritt()">💾 Fortschritt speichern</button>
+      </div>
+
+      <!-- Verwendungsnachweis -->
+      <div class="info-block">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;">Verwendungsnachweis</div>
+          <button class="btn btn-primary" style="font-size:11px;padding:6px 14px;" onclick="openVerwModal()">+ Neuer Eintrag</button>
+        </div>
+        <div id="verw-liste" style="display:flex;flex-direction:column;gap:8px;">
+          <div style="color:var(--text-muted);font-size:12px;font-family:'IBM Plex Mono',monospace;">Wird geladen…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Verwendungsnachweis Modal -->
+  <div id="verw-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:28px;width:100%;max-width:480px;margin:20px;">
+      <h3 style="font-family:'Playfair Display',serif;font-size:16px;color:var(--gold);margin-bottom:20px;">Verwendungsnachweis-Eintrag</h3>
+      <input type="hidden" id="verw-edit-id">
+      <div style="margin-bottom:12px;">
+        <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:5px;">Datum *</label>
+        <input id="verw-datum" type="date" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);outline:none;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:5px;">Beschreibung *</label>
+        <input id="verw-beschreibung" type="text" placeholder="z.B. Dachlatten und Folie, Baumarkt Freiberg" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);outline:none;">
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:5px;">Betrag (€) *</label>
+        <input id="verw-betrag" type="number" min="0" step="0.01" placeholder="0.00" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:8px 10px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text);outline:none;">
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" onclick="closeVerwModal()">Abbrechen</button>
+        <button class="btn btn-primary" onclick="saveVerwEntry()">Speichern</button>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ NUTZERVERWALTUNG (Admin only) ═══ -->
@@ -2656,13 +2970,25 @@
         <label class="form-label">Typ</label>
         <select class="form-select" id="zf-typ">
           <option value="vorher">Vorher</option>
-          <option value="aktuell">Aktuell</option>
           <option value="nachher">Nachher / Visualisierung</option>
+          <option value="baufortschritt">Baufortschritt</option>
         </select>
       </div>
       <div class="form-group form-full">
         <label class="form-label">Bereich / Beschreibung</label>
-        <input type="text" class="form-input" id="zf-bereich" placeholder="z.B. Dach EG, Fassade Nord, Treppenhaus OG ...">
+        <select class="form-input" id="zf-bereich">
+          <option value="Außenansicht">Außenansicht</option>
+          <option value="Erdgeschoss">Erdgeschoss</option>
+          <option value="1. OG">1. Obergeschoss</option>
+          <option value="Dachboden">Dachboden</option>
+          <option value="Dach">Dach</option>
+          <option value="Keller">Keller</option>
+          <option value="Sonstiges">Sonstiges</option>
+        </select>
+      </div>
+      <div class="form-group form-full">
+        <label class="form-label">Raum / Bezeichnung</label>
+        <input type="text" class="form-input" id="zf-raum" placeholder="z.B. Badezimmer, Schlafzimmer Nord …">
       </div>
       <div class="form-group">
         <label class="form-label">Datum</label>
@@ -2688,6 +3014,15 @@
           <input type="file" id="zf-input-folder-more" class="sr-file-input" multiple webkitdirectory directory onchange="handleZustandFilesPick(event)" aria-label="Weiteren Ordner wählen">
         </div>
         <div id="zf-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;"></div>
+      </div>
+    </div>
+    <div id="zf-progress-wrap" style="display:none;padding:0 20px 12px;">
+      <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);margin-bottom:5px;">
+        <span id="zf-progress-label">Wird hochgeladen…</span>
+        <span id="zf-progress-pct">0%</span>
+      </div>
+      <div style="background:var(--surface2);border-radius:2px;height:4px;overflow:hidden;">
+        <div id="zf-progress-fill" style="height:100%;background:var(--gold);width:0%;transition:width 0.15s;"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -2821,6 +3156,7 @@ let state = {
   fotos: [],
   fotoAlben: ['Haus 1', 'Haus 2', 'Innen', 'Außen', 'Sonstiges'],
   zustandFotos: [],
+  vergleichPaare: [],
   behoerden: [],
   raumAufgaben: {},
   team: [],
@@ -2928,7 +3264,7 @@ window._applyFirestoreState = function(fsState) {
     // Erster Sync nach Update (noch kein Timestamp auf beiden Seiten):
     // Arrays intelligent zusammenführen statt blind überschreiben
     console.info('Offline-Sync: Erster Sync ohne Timestamps – führe Daten zusammen.');
-    const ARRAY_KEYS = ['eintraege', 'fotos', 'zustandFotos', 'notizen', 'meilensteine', 'kontakte', 'dokumente', 'budgetPosten', 'behoerden', 'helfer', 'team'];
+    const ARRAY_KEYS = ['eintraege', 'fotos', 'zustandFotos', 'notizen', 'meilensteine', 'kontakte', 'dokumente', 'budgetPosten', 'behoerden', 'helfer', 'team', 'vergleichPaare'];
     const merged = Object.assign({}, fsState);
     ARRAY_KEYS.forEach(key => {
       merged[key] = _mergeArrayById(state[key], fsState[key]);
@@ -3216,12 +3552,27 @@ window._applyPermissions = function(currentUser) {
   }
 };
 
+function toggleSidebar() {
+  const sb = document.querySelector('.sidebar');
+  const ov = document.getElementById('sidebar-overlay');
+  sb.classList.toggle('open');
+  ov.classList.toggle('visible');
+  document.getElementById('sidebar-toggle').textContent = sb.classList.contains('open') ? '✕' : '☰';
+}
+
+function closeSidebar() {
+  document.querySelector('.sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('visible');
+  document.getElementById('sidebar-toggle').textContent = '☰';
+}
+
 function showView(id) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   const viewEl = document.getElementById('view-' + id);
   if (viewEl) viewEl.classList.add('active');
   document.querySelectorAll('[data-view="' + id + '"]').forEach(t => t.classList.add('active'));
+  if (window.innerWidth <= 900) closeSidebar();
   renderAll();
 }
 
@@ -4449,6 +4800,7 @@ function cancelFotoUpload() {
 async function confirmFotoUpload() {
   const geb = document.getElementById('foto-upload-gebaeude').value;
   const ber = document.getElementById('foto-upload-bereich').value;
+  const raum = document.getElementById('foto-upload-raum').value;
   const bulkOrdner = document.getElementById('foto-upload-ordner')?.value || (state.fotoAlben || [])[0];
   const autoOrd = document.getElementById('foto-upload-auto-ordner')?.checked;
   const alben = state.fotoAlben || [];
@@ -4458,6 +4810,7 @@ async function confirmFotoUpload() {
   for (const f of _pendingFotos) {
     f.gebaeude = geb;
     f.bereich = ber;
+    f.raum = raum;
     let ord = bulkOrdner;
     if (autoOrd && f.suggestedOrdner && alben.includes(f.suggestedOrdner)) ord = f.suggestedOrdner;
     if (!alben.includes(ord)) ord = alben[0] || 'Sonstiges';
@@ -4515,7 +4868,8 @@ function renderFotos() {
     return;
   }
   grid.innerHTML = filtered.map(f => {
-    const cap = `${f.name || ''} · ${f.ordner || '—'} · ${f.gebaeude} · ${f.bereich}`;
+    const bereLabel = f.bereich + (f.raum ? ' – ' + f.raum : '');
+    const cap = `${f.name || ''} · ${f.ordner || '—'} · ${f.gebaeude} · ${bereLabel}`;
     return `
     <div class="foto-card" style="cursor:zoom-in;" onclick="openLightboxSrc(${JSON.stringify(f.src)}, ${JSON.stringify(cap)})">
       <img src="${f.src}" alt="${_escAttr(f.name)}" loading="lazy">
@@ -4525,7 +4879,7 @@ function renderFotos() {
       </div>
       <div class="foto-card-meta">
         <div class="foto-card-date">${formatDate(f.datum)} · ${f.gebaeude} · ${_escAttr(f.ordner || '')}</div>
-        <div class="foto-card-label">${f.bereich}</div>
+        <div class="foto-card-label">${bereLabel}</div>
       </div>
     </div>`;
   }).join('');
@@ -4553,6 +4907,7 @@ function openFotoEdit(id) {
   document.getElementById('foto-edit-datum').value = f.datum || '';
   document.getElementById('foto-edit-gebaeude').value = f.gebaeude;
   document.getElementById('foto-edit-bereich').value = f.bereich;
+  document.getElementById('foto-edit-raum').value = f.raum || '';
   fillFotoOrdnerSelect('foto-edit-ordner', f.ordner);
   document.getElementById('foto-edit-modal').style.display = 'flex';
 }
@@ -4568,6 +4923,7 @@ function saveFotoEdit() {
     f.datum    = document.getElementById('foto-edit-datum').value || f.datum;
     f.gebaeude = document.getElementById('foto-edit-gebaeude').value;
     f.bereich  = document.getElementById('foto-edit-bereich').value;
+    f.raum     = document.getElementById('foto-edit-raum').value;
     const o = document.getElementById('foto-edit-ordner')?.value || '';
     const alben = state.fotoAlben || [];
     f.ordner = alben.includes(o) ? o : (alben[0] || o || 'Sonstiges');
@@ -4734,6 +5090,7 @@ function openZustandModal() {
   _zustandPending = [];
   document.getElementById('zf-datum').value = new Date().toISOString().split('T')[0];
   document.getElementById('zf-bereich').value = '';
+  document.getElementById('zf-raum').value = '';
   ['zf-input-files', 'zf-input-folder', 'zf-input-files-more', 'zf-input-folder-more'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
@@ -4759,23 +5116,27 @@ function resizeImage(dataUrl, maxPx, quality, callback) {
   img.src = dataUrl;
 }
 
-function _addZustandFotoUploadOnce(file, gebaeude, typ, bereich, datum) {
+function _addZustandFotoUploadOnce(file, gebaeude, typ, bereich, datum, raum, onProgress) {
   return new Promise((resolve, reject) => {
     if (typeof window._uploadFoto !== 'function') {
       reject(new Error('no-upload'));
       return;
     }
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `zustand/${Date.now()}_${Math.random().toString(36).slice(2, 9)}_${safeName}`;
-    window._uploadFoto(file, path).then(({ url, storagePath }) => {
+    const ts = Date.now(), rand = Math.random().toString(36).slice(2, 9);
+    const gSlug = gebaeude === 'G II' ? 'G2' : gebaeude === 'Beide' ? 'beide' : 'G1';
+    const path = typ === 'baufortschritt'
+      ? `zustand/baufortschritt/${ts}_${rand}_${safeName}`
+      : `zustand/${gSlug}/${typ}/${ts}_${rand}_${safeName}`;
+    window._uploadFoto(file, path, onProgress).then(({ url, storagePath }) => {
       if (!state.zustandFotos) state.zustandFotos = [];
-      state.zustandFotos.unshift({ id: Date.now() + Math.random(), src: url, storagePath, gebaeude, typ, bereich, datum });
+      state.zustandFotos.unshift({ id: Date.now() + Math.random(), src: url, storagePath, gebaeude, typ, bereich, raum: raum || '', datum });
       resolve();
     }).catch(reject);
   });
 }
 
-function _addZustandFotoBase64Once(file, gebaeude, typ, bereich, datum) {
+function _addZustandFotoBase64Once(file, gebaeude, typ, bereich, datum, raum) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error);
@@ -4783,7 +5144,7 @@ function _addZustandFotoBase64Once(file, gebaeude, typ, bereich, datum) {
       resizeImage(e.target.result, 800, 0.82, (srcThumb) => {
         resizeImage(e.target.result, 3000, 0.92, (srcHD) => {
           if (!state.zustandFotos) state.zustandFotos = [];
-          state.zustandFotos.unshift({ id: Date.now() + Math.random(), src: srcThumb, srcHD, gebaeude, typ, bereich, datum });
+          state.zustandFotos.unshift({ id: Date.now() + Math.random(), src: srcThumb, srcHD, gebaeude, typ, bereich, raum: raum || '', datum });
           resolve();
         });
       });
@@ -4800,25 +5161,37 @@ async function saveZustandFoto() {
 
   const gebaeude = document.getElementById('zf-gebaeude').value;
   const typ      = document.getElementById('zf-typ').value;
-  const bereich  = document.getElementById('zf-bereich').value || 'Allgemein';
+  const bereich  = document.getElementById('zf-bereich').value || 'Sonstiges';
+  const raum     = document.getElementById('zf-raum').value || '';
   const datum    = document.getElementById('zf-datum').value;
   const saveBtn  = document.querySelector('#modal-zustand .btn-primary');
   const files    = _zustandPending.map(x => x.file);
   const n        = files.length;
 
-  if (saveBtn) {
-    saveBtn.disabled = true;
-    saveBtn.textContent = n > 1 ? `Lade hoch… (0/${n})` : 'Lade hoch…';
-  }
+  const progWrap  = document.getElementById('zf-progress-wrap');
+  const progLabel = document.getElementById('zf-progress-label');
+  const progPct   = document.getElementById('zf-progress-pct');
+  const progFill  = document.getElementById('zf-progress-fill');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Lade hoch…'; }
+  if (progWrap) progWrap.style.display = 'block';
+
+  const setProgress = (i, pct) => {
+    const overall   = Math.round((i / n) * 100 + (pct / n));
+    const remaining = 100 - overall;
+    const label     = n > 1 ? `Datei ${i + 1} von ${n}` : 'Wird hochgeladen…';
+    if (progLabel) progLabel.textContent = label;
+    if (progPct)   progPct.textContent   = overall < 100 ? overall + '%' : 'Fertig ✓';
+    if (progFill)  progFill.style.width  = overall + '%';
+  };
 
   for (let i = 0; i < n; i++) {
     const file = files[i];
-    if (saveBtn && n > 1) saveBtn.textContent = `Lade hoch… (${i + 1}/${n})`;
+    setProgress(i, 0);
     try {
       if (typeof window._uploadFoto === 'function') {
-        await _addZustandFotoUploadOnce(file, gebaeude, typ, bereich, datum);
+        await _addZustandFotoUploadOnce(file, gebaeude, typ, bereich, datum, raum, pct => setProgress(i, pct));
       } else {
-        await _addZustandFotoBase64Once(file, gebaeude, typ, bereich, datum);
+        await _addZustandFotoBase64Once(file, gebaeude, typ, bereich, datum, raum);
       }
     } catch (e) {
       console.error('Storage-Upload fehlgeschlagen, nutze base64:', e);
@@ -4831,6 +5204,8 @@ async function saveZustandFoto() {
   }
 
   _zustandPending = [];
+  if (progWrap) progWrap.style.display = 'none';
+  if (progFill)  progFill.style.width  = '0%';
   markDirty(); save();
   closeZustandModal();
   renderZustand();
@@ -4851,41 +5226,35 @@ function renderZustand() {
     (!ftyp || f.typ === ftyp)
   );
 
-  // Vergleich-Section: show if we have vorher + (aktuell or nachher)
+  // Vergleich-Section: show if we have vorher + nachher
   const vorher = state.zustandFotos.filter(f => f.typ === 'vorher');
-  const nachher = state.zustandFotos.filter(f => f.typ === 'aktuell' || f.typ === 'nachher');
+  const nachher = state.zustandFotos.filter(f => f.typ === 'nachher');
   const vsec = document.getElementById('vergleich-section');
 
   if (vorher.length > 0 && nachher.length > 0) {
     vsec.style.display = 'block';
-    // Default: first of each
-    const vImg = document.getElementById('vergleich-vorher-img');
-    const nImg = document.getElementById('vergleich-nachher-img');
-    if (!vImg.src || vImg.src === window.location.href) {
-      vImg.src = vorher[0].src;
-      document.getElementById('vergleich-vorher-lbl').textContent = vorher[0].bereich + ' · ' + formatDate(vorher[0].datum);
-    }
-    if (!nImg.src || nImg.src === window.location.href) {
-      nImg.src = nachher[0].src;
-      document.getElementById('vergleich-nachher-lbl').textContent = nachher[0].bereich + ' · ' + formatDate(nachher[0].datum);
-    }
-    // Picker buttons
-    const picker = document.getElementById('vergleich-picker');
-    picker.innerHTML = '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:var(--text-muted);margin-right:6px;">WÄHLE VORHER:</span>' +
-      vorher.map(f => `<button class="btn btn-secondary" style="font-size:10px;padding:4px 10px;" onclick="setVergleichVorher('${f.id}')">${f.bereich}</button>`).join('') +
-      '<span style="font-family:\'IBM Plex Mono\',monospace;font-size:10px;color:var(--text-muted);margin:0 6px;">NACHHER:</span>' +
-      nachher.map(f => `<button class="btn btn-secondary" style="font-size:10px;padding:4px 10px;" onclick="setVergleichNachher('${f.id}')">${f.bereich}</button>`).join('');
+    // Clamp indices in case photos were deleted
+    _vIdx = Math.min(_vIdx, vorher.length - 1);
+    _nIdx = Math.min(_nIdx, nachher.length - 1);
+    const vf = vorher[_vIdx], nf = nachher[_nIdx];
+    document.getElementById('vergleich-vorher-img').src = vf.src;
+    document.getElementById('vergleich-vorher-lbl').textContent = vf.bereich + ' · ' + formatDate(vf.datum);
+    document.getElementById('vergleich-vorher-nav').textContent = (_vIdx + 1) + ' / ' + vorher.length;
+    document.getElementById('vergleich-nachher-img').src = nf.src;
+    document.getElementById('vergleich-nachher-lbl').textContent = nf.bereich + ' · ' + formatDate(nf.datum);
+    document.getElementById('vergleich-nachher-nav').textContent = (_nIdx + 1) + ' / ' + nachher.length;
   } else {
     vsec.style.display = 'none';
   }
+  renderPaare();
 
   if (filtered.length === 0) {
     grid.innerHTML = `<div class="empty-state"><div class="empty-icon">📸</div><div class="empty-text">Noch keine Fotos. Füge Vorher/Aktuell/Nachher-Fotos hinzu.</div></div>`;
     return;
   }
 
-  const typReihenfolge = ['vorher','aktuell','nachher'];
-  const typLabel = { vorher: 'Vorher', aktuell: 'Aktuell', nachher: 'Nachher / Visualisierung' };
+  const typReihenfolge = ['vorher','nachher','baufortschritt'];
+  const typLabel = { vorher: 'Vorher', nachher: 'Nachher / Visualisierung', baufortschritt: 'Baufortschritt' };
   let html = '';
   typReihenfolge.forEach(typ => {
     const gruppe = filtered.filter(f => f.typ === typ);
@@ -4893,16 +5262,17 @@ function renderZustand() {
     html += `<div class="zustand-section-title">${typLabel[typ]} <span style="color:var(--border-light);">${gruppe.length} Foto${gruppe.length!==1?'s':''}</span></div>`;
     html += `<div class="zustand-foto-grid">`;
     gruppe.forEach(f => {
+      const zBereLabel = f.bereich + (f.raum ? ' – ' + f.raum : '');
       html += `
-        <div class="zustand-card" onclick="openLightboxSrc('${f.src}','${f.bereich} · ${f.gebaeude} · ${formatDate(f.datum)}')">
-          <img src="${f.src}" alt="${f.bereich}" loading="lazy">
+        <div class="zustand-card" onclick="openLightboxSrc('${f.src}','${zBereLabel} · ${f.gebaeude} · ${formatDate(f.datum)}')">
+          <img src="${f.src}" alt="${zBereLabel}" loading="lazy">
           <div class="foto-actions" onclick="event.stopPropagation()">
             <button class="foto-action-btn" onclick="openZustandEdit('${f.id}')">✏️ Bearbeiten</button>
             <button class="foto-action-btn danger" onclick="deleteZustandFoto('${f.id}')">🗑 Löschen</button>
           </div>
           <div class="zustand-card-meta">
             <div class="zustand-card-typ typ-${f.typ}">${typLabel[f.typ]}</div>
-            <div class="zustand-card-lbl">${f.bereich}</div>
+            <div class="zustand-card-lbl">${zBereLabel}</div>
             <div class="zustand-card-date">${f.gebaeude} · ${formatDate(f.datum)}</div>
           </div>
         </div>`;
@@ -4912,17 +5282,472 @@ function renderZustand() {
   grid.innerHTML = html;
 }
 
-function setVergleichVorher(id) {
-  const f = state.zustandFotos.find(x => x.id == id);
-  if (!f) return;
-  document.getElementById('vergleich-vorher-img').src = f.src;
-  document.getElementById('vergleich-vorher-lbl').textContent = f.bereich + ' · ' + formatDate(f.datum);
+let _vIdx = 0, _nIdx = 0;
+
+function navVergleich(side, dir) {
+  if (side === 'vorher') {
+    const arr = state.zustandFotos.filter(f => f.typ === 'vorher');
+    if (!arr.length) return;
+    _vIdx = (_vIdx + dir + arr.length) % arr.length;
+    document.getElementById('vergleich-vorher-img').src = arr[_vIdx].src;
+    document.getElementById('vergleich-vorher-lbl').textContent = arr[_vIdx].bereich + ' · ' + formatDate(arr[_vIdx].datum);
+    document.getElementById('vergleich-vorher-nav').textContent = (_vIdx + 1) + ' / ' + arr.length;
+  } else {
+    const arr = state.zustandFotos.filter(f => f.typ === 'nachher');
+    if (!arr.length) return;
+    _nIdx = (_nIdx + dir + arr.length) % arr.length;
+    document.getElementById('vergleich-nachher-img').src = arr[_nIdx].src;
+    document.getElementById('vergleich-nachher-lbl').textContent = arr[_nIdx].bereich + ' · ' + formatDate(arr[_nIdx].datum);
+    document.getElementById('vergleich-nachher-nav').textContent = (_nIdx + 1) + ' / ' + arr.length;
+  }
 }
-function setVergleichNachher(id) {
-  const f = state.zustandFotos.find(x => x.id == id);
-  if (!f) return;
-  document.getElementById('vergleich-nachher-img').src = f.src;
-  document.getElementById('vergleich-nachher-lbl').textContent = f.bereich + ' · ' + formatDate(f.datum);
+
+async function uploadPaareJSON() {
+  if (typeof window._rawUpload !== 'function') return;
+  const paare = (state.vergleichPaare || []).map(p => ({
+    id: p.id, titel: p.titel,
+    vorherSrc: p.vorherSrc, nachherSrc: p.nachherSrc
+  }));
+  const blob = new Blob([JSON.stringify(paare)], { type: 'application/json' });
+  await window._rawUpload(blob, 'zustand/paare.json');
+}
+
+function savePaar() {
+  const titel = (document.getElementById('paar-titel-input').value || '').trim();
+  if (!titel) { alert('Bitte eine Bezeichnung eingeben.'); return; }
+  const vArr = state.zustandFotos.filter(f => f.typ === 'vorher');
+  const nArr = state.zustandFotos.filter(f => f.typ === 'nachher');
+  const vf = vArr[Math.min(_vIdx, vArr.length - 1)];
+  const nf = nArr[Math.min(_nIdx, nArr.length - 1)];
+  if (!vf || !nf) { alert('Bitte zuerst Vorher- und Nachher-Fotos hochladen.'); return; }
+  if (!state.vergleichPaare) state.vergleichPaare = [];
+  state.vergleichPaare.push({ id: Date.now(), titel, vorherSrc: vf.src, nachherSrc: nf.src });
+  document.getElementById('paar-titel-input').value = '';
+  markDirty(); save();
+  uploadPaareJSON();
+  renderPaare();
+}
+
+function deletePaar(id) {
+  if (!confirm('Paar löschen?')) return;
+  state.vergleichPaare = (state.vergleichPaare || []).filter(p => p.id != id);
+  markDirty(); save();
+  uploadPaareJSON();
+  renderPaare();
+}
+
+function renderPaare() {
+  if (!state.vergleichPaare) state.vergleichPaare = [];
+  const liste = document.getElementById('paare-liste');
+  const count = document.getElementById('paare-count');
+  if (!liste) return;
+  count.textContent = state.vergleichPaare.length
+    ? state.vergleichPaare.length + ' Paar' + (state.vergleichPaare.length !== 1 ? 'e' : '')
+    : '';
+  if (state.vergleichPaare.length === 0) {
+    liste.innerHTML = `<div style="font-size:11px;color:var(--text-muted);font-family:'IBM Plex Mono',monospace;">Noch keine Paare gespeichert. Navigiere zu Vorher+Nachher und klicke »Dieses Paar speichern«.</div>`;
+    return;
+  }
+  liste.innerHTML = state.vergleichPaare.map(p => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
+      <img src="${p.vorherSrc}" style="width:64px;height:48px;object-fit:cover;border-radius:2px;border:1px solid var(--border);flex-shrink:0;">
+      <div style="font-size:16px;color:var(--border-light);">→</div>
+      <img src="${p.nachherSrc}" style="width:64px;height:48px;object-fit:cover;border-radius:2px;border:1px solid var(--border);flex-shrink:0;">
+      <div style="flex:1;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text);">${p.titel}</div>
+      <button class="btn btn-secondary" style="padding:4px 10px;font-size:10px;color:#e06060;" onclick="deletePaar(${p.id})">✕</button>
+    </div>
+  `).join('');
+}
+
+// ── Wall of Fame ─────────────────────────────────────────────────
+async function renderWallOfFame() {
+  const liste = document.getElementById('wof-liste');
+  liste.style.cssText = '';
+  liste.innerHTML = '<div style="color:var(--text-muted);font-size:12px;font-family:\'IBM Plex Mono\',monospace;">Wird geladen…</div>';
+  try {
+    const q = window._query(window._collection(window._db, 'wallOfFame'), window._orderBy('reihenfolge', 'asc'));
+    const snap = await window._getDocs(q);
+    liste.innerHTML = '';
+
+    const WOF_ETAGEN = [
+      { key: 'dach',         label: 'Dachgeschoss', icon: '🏚' },
+      { key: 'obergeschoss', label: 'Obergeschoss',  icon: '🪟' },
+      { key: 'fundament',    label: 'Fundament',     icon: '🧱' },
+    ];
+    const SLOTS = 6;
+
+    const byEbene = { dach: [], obergeschoss: [], fundament: [] };
+    snap.forEach(d => {
+      const e = { id: d.id, ...d.data() };
+      const k = (e.ebene && byEbene[e.ebene] !== undefined) ? e.ebene : 'obergeschoss';
+      byEbene[k].push(e);
+    });
+
+    WOF_ETAGEN.forEach(etage => {
+      const entries = byEbene[etage.key].sort((a,b) => (a.reihenfolge||99) - (b.reihenfolge||99));
+
+      // Section label
+      const label = document.createElement('div');
+      label.style.cssText = 'font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--text-muted);letter-spacing:0.1em;text-transform:uppercase;margin:20px 0 8px;';
+      label.textContent = `${etage.icon}  ${etage.label}`;
+      liste.appendChild(label);
+
+      // Pack entries into rows
+      const rows = [];
+      let row = [], used = 0;
+      entries.forEach(e => {
+        const w = e.typ === 'sponsor' ? 2 : 1;
+        if (used + w > SLOTS && row.length > 0) { rows.push({cards:row,used}); row=[]; used=0; }
+        row.push(e); used += w;
+      });
+      rows.push({cards: row, used}); // last row (may be empty)
+
+      rows.forEach(rowData => {
+        const rowEl = document.createElement('div');
+        rowEl.style.cssText = `display:grid;grid-template-columns:repeat(${SLOTS},1fr);gap:10px;margin-bottom:10px;`;
+
+        // Occupied cards
+        rowData.cards.forEach(e => {
+          const isSponsor = e.typ === 'sponsor';
+          const w = isSponsor ? 2 : 1;
+          const card = document.createElement('div');
+          const isHidden = e.sichtbar === false;
+          card.style.cssText = `background:var(--surface);border:1px solid ${isSponsor?'var(--gold)':'var(--border)'};border-radius:var(--radius);padding:12px;cursor:pointer;position:relative;transition:box-shadow 0.15s;min-height:120px;${isHidden ? 'opacity:0.45;' : ''}`;
+          if (w > 1) card.style.gridColumn = `span ${w}`;
+          card.onmouseenter = () => card.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+          card.onmouseleave = () => card.style.boxShadow = '';
+          card.onclick = () => openWofModal(e.id);
+          card.innerHTML = `
+            <button onclick="event.stopPropagation();deleteWofEntry('${e.id}')"
+              style="position:absolute;top:6px;right:28px;background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-muted);padding:2px;line-height:1;" title="Löschen">🗑</button>
+            <button onclick="event.stopPropagation();toggleWofSichtbar('${e.id}', ${isHidden})"
+              style="position:absolute;top:6px;right:6px;background:none;border:none;cursor:pointer;font-size:12px;padding:2px;line-height:1;color:${isHidden ? '#e07040' : 'var(--text-muted)'};" title="${isHidden ? 'Versteckt – klicken zum Zeigen' : 'Sichtbar – klicken zum Verstecken'}">${isHidden ? '🙈' : '👁'}</button>
+            ${isHidden ? '<div style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:flex-end;padding:6px;pointer-events:none;"><span style="font-family:\'IBM Plex Mono\',monospace;font-size:8px;letter-spacing:0.08em;text-transform:uppercase;color:#e07040;background:rgba(0,0,0,0.5);padding:2px 5px;border-radius:2px;">versteckt</span></div>' : ''}
+            ${e.logo ? `<img src="${e.logo}" style="width:100%;height:48px;object-fit:contain;margin-bottom:8px;border-radius:2px;" loading="lazy">` : ''}
+            <div style="display:flex;gap:4px;margin-bottom:5px;">
+              ${isSponsor ? '<span style="font-size:11px;">⭐</span>' : ''}
+              ${e.hatFliese ? '<span style="font-size:11px;">🏺</span>' : ''}
+            </div>
+            ${e.gewerk ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:3px;">${e.gewerk}</div>` : ''}
+            <div style="font-weight:700;font-size:13px;color:var(--text);line-height:1.3;padding-right:32px;">${e.name}</div>
+            ${e.ort ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${e.ort}</div>` : ''}`;
+          rowEl.appendChild(card);
+        });
+
+        // Free slots
+        const remaining = SLOTS - rowData.used;
+        for (let i = 0; i < remaining; i++) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'border:1.5px dashed var(--border);border-radius:var(--radius);min-height:120px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0.45;transition:opacity 0.15s;';
+          empty.onmouseenter = () => empty.style.opacity = '0.85';
+          empty.onmouseleave = () => empty.style.opacity = '0.45';
+          empty.onclick = () => { openWofModal(); document.getElementById('wof-ebene').value = etage.key; };
+          empty.innerHTML = `<div style="text-align:center;color:var(--text-muted);"><div style="font-size:20px;margin-bottom:4px;">+</div><div style="font-size:9px;font-family:'IBM Plex Mono',monospace;letter-spacing:0.1em;">FREI</div></div>`;
+          rowEl.appendChild(empty);
+        }
+
+        liste.appendChild(rowEl);
+      });
+    });
+  } catch(e) {
+    liste.innerHTML = '<div style="color:#e06060;font-size:12px;">Fehler beim Laden: ' + e.message + '</div>';
+  }
+}
+
+function wofLogoPreview() {
+  const url = document.getElementById('wof-logo').value.trim();
+  const prev = document.getElementById('wof-logo-preview');
+  if (url) {
+    prev.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:contain;" onerror="this.parentElement.innerHTML='<span style=\\'font-size:1.2rem;color:#e06060;\\'>✕</span>'">`;
+  } else {
+    prev.innerHTML = '<span style="font-size:1.2rem;color:var(--text-muted);">🖼</span>';
+  }
+}
+
+async function wofLogoUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById('wof-logo-status');
+  status.textContent = 'Wird hochgeladen…';
+  try {
+    const path = 'wof-logos/' + Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const { url } = await window._uploadFoto(file, path);
+    document.getElementById('wof-logo').value = url;
+    wofLogoPreview();
+    status.textContent = '✓ Hochgeladen';
+    setTimeout(() => { status.textContent = ''; }, 2500);
+  } catch(e) {
+    status.textContent = 'Fehler: ' + e.message;
+  }
+  input.value = '';
+}
+
+function openWofModal(id) {
+  document.getElementById('wof-edit-id').value = id || '';
+  document.getElementById('wof-modal-title').textContent = id ? 'EINTRAG BEARBEITEN' : 'NEUER EINTRAG';
+  document.getElementById('wof-name').value = '';
+  document.getElementById('wof-ort').value = '';
+  document.getElementById('wof-ebene').value = 'obergeschoss';
+  document.getElementById('wof-typ').value = 'helfer';
+  document.getElementById('wof-gewerk').value = '';
+  document.getElementById('wof-beschreibung').value = '';
+  document.getElementById('wof-logo').value = '';
+  wofLogoPreview();
+  document.getElementById('wof-link').value = '';
+  document.getElementById('wof-datum').value = '';
+  document.getElementById('wof-reihenfolge').value = '';
+  document.getElementById('wof-fliese').checked = false;
+  document.getElementById('wof-sichtbar').checked = true;
+
+  if (id) {
+    window._getDocs(window._collection(window._db, 'wallOfFame')).then(snap => {
+      snap.forEach(d => {
+        if (d.id === id) {
+          const e = d.data();
+          document.getElementById('wof-name').value         = e.name || '';
+          document.getElementById('wof-ort').value          = e.ort || '';
+          document.getElementById('wof-ebene').value        = e.ebene || 'obergeschoss';
+          document.getElementById('wof-typ').value          = e.typ || 'helfer';
+          document.getElementById('wof-gewerk').value       = e.gewerk || '';
+          document.getElementById('wof-beschreibung').value = e.beschreibung || '';
+          document.getElementById('wof-logo').value         = e.logo || '';
+          wofLogoPreview();
+          document.getElementById('wof-link').value         = (e.link || '').replace(/^https?:\/\//i, '');
+          document.getElementById('wof-datum').value        = e.datum || '';
+          document.getElementById('wof-reihenfolge').value  = e.reihenfolge || '';
+          document.getElementById('wof-fliese').checked     = !!e.hatFliese;
+          document.getElementById('wof-sichtbar').checked   = e.sichtbar !== false;
+        }
+      });
+    });
+  }
+  document.getElementById('wof-modal').style.display = 'flex';
+}
+
+function closeWofModal() {
+  document.getElementById('wof-modal').style.display = 'none';
+}
+
+async function saveWofEntry() {
+  const name = document.getElementById('wof-name').value.trim();
+  if (!name) { alert('Name ist Pflichtfeld.'); return; }
+  const data = {
+    name,
+    ort:          document.getElementById('wof-ort').value.trim(),
+    ebene:        document.getElementById('wof-ebene').value,
+    typ:          document.getElementById('wof-typ').value,
+    gewerk:       document.getElementById('wof-gewerk').value.trim(),
+    beschreibung: document.getElementById('wof-beschreibung').value.trim(),
+    logo:         document.getElementById('wof-logo').value.trim(),
+    link:         (function(){ const v = document.getElementById('wof-link').value.trim().replace(/\s+/g,'').replace(/^https?:\/\//i,''); return v ? 'https://' + v : ''; })(),
+    datum:        document.getElementById('wof-datum').value,
+    span:         document.getElementById('wof-typ').value === 'sponsor' ? 2 : 1,
+    reihenfolge:  parseInt(document.getElementById('wof-reihenfolge').value) || 99,
+    hatFliese:    document.getElementById('wof-fliese').checked,
+    sichtbar:     document.getElementById('wof-sichtbar').checked,
+  };
+  const id = document.getElementById('wof-edit-id').value;
+  try {
+    if (id) {
+      await window._updateDoc(window._docRef('wallOfFame', id), data);
+    } else {
+      await window._addDoc(window._collection(window._db, 'wallOfFame'), data);
+    }
+    closeWofModal();
+    renderWallOfFame();
+  } catch(e) { alert('Fehler: ' + e.message); }
+}
+
+async function deleteWofEntry(id) {
+  if (!confirm('Eintrag wirklich löschen?')) return;
+  await window._deleteDoc(window._docRef('wallOfFame', id));
+  renderWallOfFame();
+}
+
+async function toggleWofSichtbar(id, currentlyHidden) {
+  await window._updateDoc(window._docRef('wallOfFame', id), { sichtbar: currentlyHidden });
+  renderWallOfFame();
+}
+
+
+// ── GÄSTEBUCH MODERATION ─────────────────────────────────────────
+
+function gbEsc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function renderGaestebuch() {
+  const container = document.getElementById('gb-liste');
+  container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;font-family:\'IBM Plex Mono\',monospace;">Wird geladen…</div>';
+  try {
+    const q = window._query(window._collection(window._db, 'gaestebuch'), window._orderBy('erstellt', 'desc'));
+    const snap = await window._getDocs(q);
+    const ausstehend = [], freigegeben = [];
+    snap.forEach(d => {
+      const dat = Object.assign({}, d.data(), { _id: d.id });
+      (dat.sichtbar === true ? freigegeben : ausstehend).push(dat);
+    });
+
+    function karte(e, ausstehend) {
+      const farbe = ausstehend ? 'rgba(201,168,76,0.06)' : 'rgba(74,103,65,0.06)';
+      const rand  = ausstehend ? 'rgba(201,168,76,0.3)'  : 'rgba(74,103,65,0.25)';
+      const meta  = [e.name, e.ort, e.gewerk].filter(Boolean).map(gbEsc).join(' · ');
+      const aktionen = ausstehend
+        ? `<button class="btn btn-primary" style="font-size:11px;padding:5px 13px;" onclick="gbFreigeben('${e._id}')">✓ Freigeben</button>
+           <button class="btn" style="font-size:11px;padding:5px 13px;border-color:var(--rust);color:var(--rust);" onclick="gbLoeschen('${e._id}')">✕ Ablehnen</button>`
+        : `<button class="btn" style="font-size:11px;padding:5px 13px;border-color:var(--rust);color:var(--rust);" onclick="gbLoeschen('${e._id}')">Löschen</button>`;
+      return `<div style="background:${farbe};border:1px solid ${rand};border-radius:4px;padding:16px;margin-bottom:10px;">
+        <div style="font-size:13px;color:var(--text);margin-bottom:6px;line-height:1.6;">"${gbEsc(e.text)}"</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);margin-bottom:10px;">${meta}</div>
+        <div style="display:flex;gap:8px;">${aktionen}</div>
+      </div>`;
+    }
+
+    let html = `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px;">Ausstehend (${ausstehend.length})</div>`;
+    html += ausstehend.length ? ausstehend.map(e => karte(e, true)).join('') : '<div style="color:var(--text-muted);font-size:12px;font-style:italic;margin-bottom:20px;">Keine ausstehenden Einträge.</div>';
+    html += `<div style="font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted);margin:24px 0 10px;">Freigegeben (${freigegeben.length})</div>`;
+    html += freigegeben.length ? freigegeben.map(e => karte(e, false)).join('') : '<div style="color:var(--text-muted);font-size:12px;font-style:italic;">Noch keine freigegebenen Einträge.</div>';
+    container.innerHTML = html;
+  } catch(err) {
+    container.innerHTML = '<div style="color:#c03020;font-size:12px;">Fehler: ' + err.message + '</div>';
+  }
+}
+
+async function gbFreigeben(id) {
+  try {
+    await window._updateDoc(window._docRef('gaestebuch', id), { sichtbar: true });
+    renderGaestebuch();
+  } catch(e) { alert('Fehler: ' + e.message); }
+}
+
+async function gbLoeschen(id) {
+  if (!confirm('Eintrag wirklich löschen?')) return;
+  try {
+    await window._deleteDoc(window._docRef('gaestebuch', id));
+    renderGaestebuch();
+  } catch(e) { alert('Fehler: ' + e.message); }
+}
+
+// ── UNTERSTÜTZUNG ─────────────────────────────────────────────
+
+async function renderUnterstuetzung() {
+  try {
+    const snap = await window._getDocs(window._collection(window._db, 'admin'));
+    snap.forEach(d => {
+      if (d.id === 'spenden') {
+        const e = d.data();
+        document.getElementById('ust-paypal-aktiv').checked = e.paypalAktiv === true;
+        document.getElementById('ust-paypal-hinweis').value = e.paypalHinweis || '';
+        document.getElementById('ust-paypal-link').value    = e.paypalLink || '';
+        document.getElementById('ust-ist').value          = e.istBetrag || '';
+        document.getElementById('ust-ziel').value         = e.zielBetrag || '';
+        document.getElementById('ust-hinweis').value      = e.hinweis || '';
+      }
+    });
+  } catch(e) { console.error('Zahlungsdaten laden:', e.message); }
+
+  try {
+    const snap = await window._getDocs(window._collection(window._db, 'verwendungsnachweis'));
+    let eintraege = [];
+    snap.forEach(d => eintraege.push({ id: d.id, ...d.data() }));
+    eintraege.sort((a, b) => (b.datum || '').localeCompare(a.datum || ''));
+    const liste = document.getElementById('verw-liste');
+    if (eintraege.length === 0) {
+      liste.innerHTML = '<div style="color:var(--text-muted);font-size:12px;font-family:\'IBM Plex Mono\',monospace;">Noch keine Einträge.</div>';
+      return;
+    }
+    liste.innerHTML = '';
+    eintraege.forEach(e => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface2);border-radius:4px;padding:10px 14px;';
+      const datum = e.datum ? new Date(e.datum).toLocaleDateString('de-DE',{day:'2-digit',month:'long',year:'numeric'}) : '–';
+      row.innerHTML = `
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:2px;">${datum}</div>
+          <div style="font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${e.beschreibung||'–'}</div>
+        </div>
+        <div style="font-family:'Playfair Display',serif;font-size:15px;color:var(--moss);font-weight:700;white-space:nowrap;">${(+e.betrag||0).toLocaleString('de-DE',{minimumFractionDigits:2})} €</div>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:10px;" onclick="openVerwModal('${e.id}')">✏️</button>
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:10px;color:#e06060;" onclick="deleteVerwEntry('${e.id}')">🗑</button>
+        </div>`;
+      liste.appendChild(row);
+    });
+  } catch(e) {
+    document.getElementById('verw-liste').innerHTML = '<div style="color:#e06060;font-size:12px;">Fehler: ' + e.message + '</div>';
+  }
+}
+
+async function saveZahlungsdaten() {
+  const data = {
+    paypalAktiv:   document.getElementById('ust-paypal-aktiv').checked,
+    paypalHinweis: document.getElementById('ust-paypal-hinweis').value.trim(),
+    paypalLink:    document.getElementById('ust-paypal-link').value.trim(),
+  };
+  try {
+    await window._setDoc(window._docRef('admin', 'spenden'), data, { merge: true });
+    alert('Zahlungsdaten gespeichert.');
+  } catch(e) { alert('Fehler: ' + e.message); }
+}
+
+async function saveFortschritt() {
+  const data = {
+    istBetrag:  parseFloat(document.getElementById('ust-ist').value) || 0,
+    zielBetrag: parseFloat(document.getElementById('ust-ziel').value) || 0,
+    hinweis:    document.getElementById('ust-hinweis').value.trim(),
+  };
+  try {
+    await window._setDoc(window._docRef('admin', 'spenden'), data, { merge: true });
+    alert('Fortschritt gespeichert.');
+  } catch(e) { alert('Fehler: ' + e.message); }
+}
+
+function openVerwModal(id) {
+  document.getElementById('verw-edit-id').value      = id || '';
+  document.getElementById('verw-datum').value        = '';
+  document.getElementById('verw-beschreibung').value = '';
+  document.getElementById('verw-betrag').value       = '';
+  if (id) {
+    window._getDocs(window._collection(window._db, 'verwendungsnachweis')).then(snap => {
+      snap.forEach(d => {
+        if (d.id === id) {
+          const e = d.data();
+          document.getElementById('verw-datum').value        = e.datum || '';
+          document.getElementById('verw-beschreibung').value = e.beschreibung || '';
+          document.getElementById('verw-betrag').value       = e.betrag || '';
+        }
+      });
+    });
+  }
+  document.getElementById('verw-modal').style.display = 'flex';
+}
+
+function closeVerwModal() {
+  document.getElementById('verw-modal').style.display = 'none';
+}
+
+async function saveVerwEntry() {
+  const datum        = document.getElementById('verw-datum').value;
+  const beschreibung = document.getElementById('verw-beschreibung').value.trim();
+  const betrag       = parseFloat(document.getElementById('verw-betrag').value);
+  if (!datum || !beschreibung || isNaN(betrag)) { alert('Datum, Beschreibung und Betrag sind Pflicht.'); return; }
+  const data = { datum, beschreibung, betrag };
+  const id = document.getElementById('verw-edit-id').value;
+  try {
+    if (id) {
+      await window._updateDoc(window._docRef('verwendungsnachweis', id), data);
+    } else {
+      await window._addDoc(window._collection(window._db, 'verwendungsnachweis'), data);
+    }
+    closeVerwModal();
+    renderUnterstuetzung();
+  } catch(e) { alert('Fehler: ' + e.message); }
+}
+
+async function deleteVerwEntry(id) {
+  if (!confirm('Eintrag wirklich löschen?')) return;
+  await window._deleteDoc(window._docRef('verwendungsnachweis', id));
+  renderUnterstuetzung();
 }
 
 function deleteZustandFoto(id) {
@@ -4946,6 +5771,7 @@ function openZustandEdit(id) {
   document.getElementById('zustand-edit-gebaeude').value = f.gebaeude;
   document.getElementById('zustand-edit-typ').value = f.typ;
   document.getElementById('zustand-edit-bereich').value = f.bereich;
+  document.getElementById('zustand-edit-raum').value = f.raum || '';
   document.getElementById('zustand-edit-datum').value = f.datum;
   document.getElementById('zustand-edit-modal').style.display = 'flex';
 }
@@ -4961,6 +5787,7 @@ function saveZustandEdit() {
     f.gebaeude = document.getElementById('zustand-edit-gebaeude').value;
     f.typ      = document.getElementById('zustand-edit-typ').value;
     f.bereich  = document.getElementById('zustand-edit-bereich').value;
+    f.raum     = document.getElementById('zustand-edit-raum').value;
     f.datum    = document.getElementById('zustand-edit-datum').value;
     markDirty(); save();
     renderZustand();
@@ -7208,8 +8035,20 @@ function printRaumCollage() {
         </select>
       </div>
       <div>
-        <label class="form-label">Bereich / Bezeichnung</label>
-        <input class="form-input" type="text" id="zustand-edit-bereich" placeholder="z.B. Fassade Süd">
+        <label class="form-label">Bereich</label>
+        <select class="form-input" id="zustand-edit-bereich">
+          <option value="Außenansicht">Außenansicht</option>
+          <option value="Erdgeschoss">Erdgeschoss</option>
+          <option value="1. OG">1. Obergeschoss</option>
+          <option value="Dachboden">Dachboden</option>
+          <option value="Dach">Dach</option>
+          <option value="Keller">Keller</option>
+          <option value="Sonstiges">Sonstiges</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Raum / Bezeichnung</label>
+        <input class="form-input" type="text" id="zustand-edit-raum" placeholder="z.B. Badezimmer, Schlafzimmer Nord …">
       </div>
       <div>
         <label class="form-label">Datum</label>
@@ -7272,13 +8111,18 @@ function printRaumCollage() {
       <div>
         <label class="form-label">Bereich</label>
         <select class="form-input" id="foto-edit-bereich">
-          <option value="Außen">Außen</option>
+          <option value="Außenansicht">Außenansicht</option>
+          <option value="Erdgeschoss">Erdgeschoss</option>
+          <option value="1. OG">1. Obergeschoss</option>
+          <option value="Dachboden">Dachboden</option>
+          <option value="Dach">Dach</option>
           <option value="Keller">Keller</option>
-          <option value="EG">Erdgeschoss</option>
-          <option value="OG">Obergeschoss</option>
-          <option value="Dach">Dachgeschoss</option>
           <option value="Sonstiges">Sonstiges</option>
         </select>
+      </div>
+      <div>
+        <label class="form-label">Raum / Bezeichnung</label>
+        <input class="form-input" type="text" id="foto-edit-raum" placeholder="z.B. Badezimmer, Schlafzimmer Nord …">
       </div>
       <div style="display:flex;gap:10px;justify-content:space-between;">
         <button class="btn" style="background:rgba(181,81,42,0.2);color:var(--rust);border:1px solid var(--rust);" onclick="deleteFotoFromEdit()">🗑 Löschen</button>
@@ -7320,15 +8164,29 @@ function printRaumCollage() {
         </select>
       </div>
       <div>
-        <label class="form-label">Bereich (Raum / Lage)</label>
+        <label class="form-label">Bereich</label>
         <select class="form-input" id="foto-upload-bereich">
-          <option value="Außen">Außen</option>
+          <option value="Außenansicht">Außenansicht</option>
+          <option value="Erdgeschoss">Erdgeschoss</option>
+          <option value="1. OG">1. Obergeschoss</option>
+          <option value="Dachboden">Dachboden</option>
+          <option value="Dach">Dach</option>
           <option value="Keller">Keller</option>
-          <option value="EG">Erdgeschoss</option>
-          <option value="OG">Obergeschoss</option>
-          <option value="Dach">Dachgeschoss</option>
           <option value="Sonstiges">Sonstiges</option>
         </select>
+      </div>
+      <div>
+        <label class="form-label">Raum / Bezeichnung</label>
+        <input class="form-input" type="text" id="foto-upload-raum" placeholder="z.B. Badezimmer, Schlafzimmer Nord …">
+      </div>
+      <div id="fu-progress-wrap" style="display:none;">
+        <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);margin-bottom:5px;">
+          <span id="fu-progress-label">Wird hochgeladen…</span>
+          <span id="fu-progress-pct">0%</span>
+        </div>
+        <div style="background:var(--surface2);border-radius:2px;height:4px;overflow:hidden;">
+          <div id="fu-progress-fill" style="height:100%;background:var(--gold);width:0%;transition:width 0.15s;"></div>
+        </div>
       </div>
       <div style="display:flex;gap:10px;justify-content:flex-end;">
         <button class="btn btn-secondary" onclick="cancelFotoUpload()">Abbrechen</button>

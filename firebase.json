@@ -1,0 +1,20 @@
+{
+  "hosting": {
+    "site": "bautagebuch-mann-erz",
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".firebaserc",
+      "**/.*",
+      "**/node_modules/**",
+      "README.md",
+      "cors.json",
+      "storage.rules",
+      "firebase-config.example.js",
+      "firebase-config.b64.txt"
+    ]
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}

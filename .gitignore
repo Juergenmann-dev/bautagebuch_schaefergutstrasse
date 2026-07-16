@@ -3,3 +3,6 @@ firebase-config.js
 
 # macOS
 .DS_Store
+
+# Firebase CLI Deploy-Cache
+.firebase/
