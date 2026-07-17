@@ -3775,7 +3775,7 @@ function openEditEintragModal(id) {
 
 function calcArbeitstage(von, bis) {
   if (!von || !bis) return 1;
-  const diff = Math.round((new Date(bis) - new Date(von)) / 86400000);
+  const diff = Math.round((new Date(bis) - new Date(von)) / 86400000) + 1;
   return diff > 1 ? diff : 1;
 }
 
